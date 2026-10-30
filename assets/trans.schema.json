@@ -1,0 +1,38 @@
+[
+ {
+  "type": "chapter_open",
+  "num": "3",
+  "title": "并行与数据分组",
+  "orig_title": "Parallelization and data grouping",
+  "toc": ["并行化", "数据并行与任务并行", "事件分组"],
+  "quote": "九个女人没办法在一个月里生出一个孩子。",
+  "quote_by": "——弗雷德里克·P·布鲁克斯（Frederick P. Brooks）",
+  "intro": "上一章我们用流处理作业解决了实时统计过桥车辆的问题……"
+ },
+ { "type": "h2", "text": "新概念：数据并行" },
+ { "type": "p", "text": "用一台计算机解决这个计数问题不够快。注意 `applyOperator()` 这个 API。" },
+ { "type": "h3", "text": "为什么它重要" },
+ {
+  "type": "list",
+  "items": ["数据并行：同一个任务作用在不同事件集合上。", "任务并行：不同任务同时执行。"]
+ },
+ {
+  "type": "numlist",
+  "items": ["并行化为什么重要？", "你能想到别的事件分组策略吗？"]
+ },
+ { "type": "figure", "key": "p80_f0" },
+ {
+  "type": "table",
+  "head": ["投递语义", "至多一次", "精确一次"],
+  "rows": [["准确性", "• 不保证准确", "• 保证准确"]]
+ },
+ {
+  "type": "code",
+  "text": "Stream bridgeStream = job.addSource(\n  new SensorReader(\"sensor-reader\", 2, 9990)\n);"
+ },
+ {
+  "type": "code",
+  "text": "if (x) {\n  // mark as fraudulent\n}",
+  "notes": [["// mark as fraudulent", "标记为欺诈"]]
+ }
+]

@@ -1,0 +1,9 @@
+﻿# Python 缓存与字节码
+__pycache__/
+*.py[cod]
+*.pyo
+
+# 技能运行时可能落下的中间产物
+*.log
+.DS_Store
+Thumbs.db

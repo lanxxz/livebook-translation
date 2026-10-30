@@ -1,0 +1,16 @@
+{
+  "pdf": "D:/books/your-book.pdf",
+  "root": "D:/work/mybook",
+  "book_title": "图解流处理系统",
+  "cn_body": "宋体",
+  "cn_head": "微软雅黑",
+  "cn_hand": "楷体",
+  "en_body": "Times New Roman",
+  "en_head": "Segoe UI",
+  "body_pt": 10.5,
+  "margin_cm": 2.4,
+  "text_w_cm": 16.2,
+  "dpi_cap": 230,
+  "zoom": 4.1667,
+  "max_h_cm": 17.5
+}
