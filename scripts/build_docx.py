@@ -5,7 +5,8 @@
   python build_docx.py <trans.json> <figtexts.json> <figtrans.json> <figdir> <out.docx> [中文书名]
 """
 import json
-from bookconf import cfg, sys, os, re
+import sys, os, re
+from bookconf import cfg
 from docx import Document
 from docx.shared import Pt, Cm, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
@@ -97,6 +98,25 @@ def shade(cell, hexcolor):
     shd.set(qn('w:color'), 'auto')
     shd.set(qn('w:fill'), hexcolor)
     tcPr.append(shd)
+
+
+def _row_flag(row, tag):
+    """给表格行加一个布尔 trPr 标记，重复调用不会叠加。"""
+    trPr = row._tr.get_or_add_trPr()
+    if trPr.find(qn(tag)) is None:
+        el = OxmlElement(tag)
+        el.set(qn('w:val'), 'true')
+        trPr.append(el)
+
+
+def keep_row_together(row):
+    """禁止单行跨页：否则下一页会出现只有右列续行、其他格全空的断行。"""
+    _row_flag(row, 'w:cantSplit')
+
+
+def repeat_header(row):
+    """跨页时重复表头。必须在 keep_row_together 之后调用。"""
+    _row_flag(row, 'w:tblHeader')
 
 
 CJK = re.compile(r'[\u3000-\u303f\u4e00-\u9fff\uff00-\uffef]')
@@ -332,7 +352,11 @@ def build(trans_p, figtexts_p, figtrans_p, figdir, out_p, ch_label=''):
                 r = p.add_run(h)
                 set_run(r, size=9.5, bold=True, color=ACCENT, cn=CN_HEAD, en=EN_HEAD)
                 shade(c, 'F5EDEF')
+            # 顺序：先禁止拆行，再声明重复表头（LibreOffice 认这个顺序）
+            keep_row_together(tb.rows[0])
+            repeat_header(tb.rows[0])
             for i, row in enumerate(rows, 1):
+                keep_row_together(tb.rows[i])
                 for j, cell_txt in enumerate(row):
                     c = tb.cell(i, j)
                     c.text = ''
