@@ -607,6 +607,91 @@ for gi, g in enumerate(groups):
 （`layout_check.py` 会报页眉样式数不连续）。
 
 
+
+### P8. 封面印出「第　章」、还混进两个黑方块
+
+症状：封面顶部一行小字是「第　章」（章号空白），中间出现两块黑色斜面矩形，
+文字散落、大量留白，整页明显不对。
+
+原因有两个，都属同一类错误——**把封面当章节页处理**：
+
+1. 渲染器里 `front_open` 走的是 `add_chapter_open`，该函数无条件拼
+   `f'第 {blk["num"]} 章'`；封面块没有 `num` 字段，于是拼出「第　章」。
+2. 原书封面的 logo 是**矢量装饰**（白色填充路径压白底显形），
+   走图块流程后 `get_image_info()` 采到的是黑色轮廓，按原始像素宽度插入
+   就成了两块巨大的黑方块。
+
+**做法**：
+
+- 封面单独走 `add_cover()`，**整页文字排版，不放任何图片**；
+  交付前断言 `len(page.get_image_info()) == 0`。
+- `front_open` 分两路：有 `cover` 元数据 → 封面；否则 → `add_front_head()`
+  （只出中文标题 + 英文斜体副标题 + 分隔线，**不带任何编号**）。
+- 前置内页（版权/赞誉/献词/前言）一律不得出现「第 X 章」；
+  全书扫描断言 `'第　章' not in page_text`。
+
+字段约定（`_trans.json` 的首块）：
+
+```json
+{"type":"front_open","title":"Elasticsearch 实战","orig_title":"…",
+ "cover":{"title":"…","orig_title":"…","edition":"第 2 版",
+          "authors":["Madhusudhan Konda　著"],"foreword":"Shay Banon　作序",
+          "press":"MANNING","press_sub":"SHELTER ISLAND","site":"www.manning.com"}}
+```
+
+版次只出现一次（放 `edition`），标题里不要再重复「第 2 版」。
+
+### P9. 侧栏/便签被分页从中间切开
+
+症状：蓝色框（sidebars）或米色便签（callout）上半截在页尾、下半截在下一页，
+读者看到两个残框。用户会直接指出「这一块最好在同一页显示全」。
+
+这是**系统性**问题，不是个别页：实测一本 520 页的书有 100+ 处。
+
+原因三层，逐层排除：
+
+1. **只设了 `keep_with_next`**。框是一串段落，必须**每段** `keepLines`
+   （段中不分页）+ 除末段外全部 `keepNext`，整串才连贯。
+2. **`python-docx` 的 `keep_together` 不落地**。实测
+   `paragraph_format.keep_together = True` 之后，`pPr` 里根本没有
+   `<w:keepLines>`，`<w:keepNext>` 还会被写成 `val="0"`。必须直接写 OOXML：
+
+   ```python
+   def xml_keep(p, lines=True, nxt=False):
+       pPr = p._p.get_or_add_pPr()
+       def _set(tag, want):
+           el = pPr.find(qn(tag))
+           if want:
+               if el is None:
+                   el = OxmlElement(tag); pPr.append(el)
+               el.set(qn('w:val'), '1')
+           elif el is not None:
+               pPr.remove(el)
+       _set('w:keepLines', lines); _set('w:keepNext', nxt)
+   ```
+
+   改完**必须回读 XML 验证**（`pPr.find(qn('w:keepLines'))` 不为 None），
+   否则会以为改好了其实没生效。
+3. **框的范围算错**。收尾若用 `reversed(doc.paragraphs)` 找「最后一个非空段」，
+   会越过框边界把**框外段落**也粘进来，真正的框反而不连续。
+   必须在框开始时记 `start_idx = len(doc.paragraphs)`，收尾用精确区间。
+
+**判据要写对**。不能用「矩形贴顶/贴底」判断被切断——正常开始的框也贴顶。
+正确判据：第 N 页底部有底色矩形，且第 N+1 页顶部有**同色、宽度相近（±12px）**
+的矩形，才是同一个框被切开：
+
+```python
+if r.y1 >= 795: bot[i+1].append(round(r.width))
+if r.y0 <= 62:  top[i+1].append(round(r.width))
+# 宽度相近才配对
+```
+
+交付闸门：`确认被分页切开的侧栏/便签：0 处`。
+
+**超长框怎么办**：框本身超过一页时无法整框保持，此时退化为逐段
+`keepLines`（每段自身不跨页），并在交付说明里列出这类长框，
+不要为了「整框同页」把字号压到不可读。
+
 ---
 
 ## Q. 续译与交付边界（15 章 Manning 书续做实测）
