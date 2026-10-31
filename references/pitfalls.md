@@ -793,3 +793,216 @@ done
 **做法**：交付前先定义范围——**前置部分 + 正文**是默认范围；出版社广告与相关书目不译；
 原书索引不照译（页码绑定英文版排版，中文重排后全部失效），要做就用中文版实际页码重建。
 合订本交付时说明范围，别用“全书完成”掩盖缺口。
+
+## R. 合订本保真、封面重建与彩色图内文字（297 页 Manning 实战）
+
+这一组来自一本 297 页、22 份独立文档、63 张矢量图的书。骨架流水线本身跑得很顺，
+**全部返工都发生在“合订”和“图内彩色底”这两处**。
+
+### R1. 合订本 docx 用 `lxml` 搬 XML → 图全丢 + LibreOffice 打不开
+
+症状三连（按出现顺序）：
+
+1. 合订后 `inline_shapes` 有 63 个，但 `uniq(rId)` 只有 8 个 —— 63 张图挤在 8 个关系上；
+2. LibreOffice 报 `source file could not be loaded`，合订 PDF 转不出来；
+3. 勉强转出来的 PDF 里 `get_images()` 为 0，整本书一张图都没有。
+
+两个独立成因，必须一起修：
+
+**成因一：rId 撞车。** `deepcopy(child)` 搬过来的是源文档的 `r:embed="rId12"`，
+而合订本自己也有 `rId12`。关系表按 rId 索引，于是所有图都指向合订本自己的那几张。
+
+**成因二：`xmlns:a` / `xmlns:pic` 丢失。** 源文档把 DrawingML 命名空间声明在**局部元素**上，
+深拷贝搬走后声明留在原地；合订本根节点又没有这两个前缀 → XML 不合法 → LibreOffice 拒绝加载。
+
+**正确做法：**
+
+```python
+def _rehome_media(master, src, root):
+    """搬运前把每个 r:embed/r:link/r:id 重新建立成合订本的关系。"""
+    from docx.oxml.ns import nsmap
+    R_NS = nsmap['r']
+    for el in root.iter():
+        for attr in (f'{{{R_NS}}}embed', f'{{{R_NS}}}link', f'{{{R_NS}}}id'):
+            rid = el.get(attr)
+            if not rid:
+                continue
+            rel = src.part.rels.get(rid)
+            if rel is None:
+                continue
+            if rel.is_external:
+                new = master.part.relate_to(rel.target_ref, rel.reltype,
+                                            is_external=True)
+            else:
+                new = master.part.relate_to(rel.target_part, rel.reltype)
+                new = getattr(new, 'rId', new)
+            el.set(attr, new)
+```
+
+命名空间**不要**试图 `el.set('xmlns:a', ...)` —— `lxml` 直接抛
+`ValueError: Invalid attribute name 'xmlns:a'`。改成**保存后按字节修补根标签**：
+
+```python
+x = zin.read('word/document.xml').decode('utf-8')
+m = re.search(r'<(w:document|document)\b[^>]*>', x)
+extra = ''.join(f' xmlns:{p}="{u}"' for p, u in NS_DECL.items()
+                if f'xmlns:{p}=' not in m.group(0))
+x = x[:m.start()] + m.group(0)[:-1] + extra + '>' + x[m.end():]
+```
+
+**验收断言**（缺一不可）：
+
+```python
+assert len(set(md5(part.blob) for each inline_shape)) == 图块总数
+assert 'xmlns:a=' in document.xml 根标签
+assert len(pymupdf.open(merged_pdf)[0].get_images()) > 0
+```
+
+### R2. 合订 docx 再转 PDF 不稳，最终 PDF 走“拼接 + 重写页码”
+
+即便修好 R1，2MB 的 `document.xml` 让 LibreOffice 加载仍然很慢、偶发失败。
+**可靠做法：拼接各分册 PDF，然后逐页把页脚数字涂掉重写。**
+
+```python
+doc = pymupdf.open()
+for d, path in items:
+    doc.insert_pdf(pymupdf.open(per_doc_pdf))
+
+for pno in range(doc.page_count):
+    page = doc[pno]
+    foot = pymupdf.Rect(0, page.rect.height - 60, page.rect.width, page.rect.height)
+    hits = [(pymupdf.Rect(l['bbox']), l['spans'][0]['size'])
+            for b in page.get_text('dict', clip=foot)['blocks'] if b['type'] == 0
+            for l in b['lines']
+            if ''.join(s['text'] for s in l['spans']).strip().isdigit()]
+    for rect, _ in hits:
+        page.add_redact_annot(rect, fill=(1, 1, 1))
+    if hits:
+        page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE)
+        page.insert_text((hits[0][0].x0 - 2, hits[0][0].y1 - 2),
+                         str(pno + 1), fontname='helv', fontsize=hits[0][1])
+```
+
+关键：`PDF_REDACT_IMAGE_NONE`，否则涂页码会连带清掉同页的插图。
+
+这样得到的 PDF：页码连续（`layout_check` 的“页码错位 0”才成立）、图片齐全、
+还能用各分册的 `get_toc()` 拼出全书书签。**合订 docx 仍然交付**（便于修订），
+但它不再是 PDF 的来源。
+
+### R3. 封面别用 `front` 文档冒充，要独立的 `cover` kind
+
+症状：交付后用户第一句就是“缺少封面”。原因是 `docs.json` 第一项是 `front`
+（前言/致谢），骨架流水线把它当普通文档渲染，于是全书从“前言”开始。
+
+新增一个 `kind: 'cover'`，并且：
+
+- **排在合并清单最前**，且必须**先有它再算目录页码**（封面 3 页会让正文整体后移）；
+- **不能复用 `front_open` 渲染**，否则没有 `num` 时会印出「第　章」（见 P8）；
+- **封面不插入任何图片** —— 原书书名与插画是整幅栅格位图，抠出来就是白底白图。
+
+原书封面是**栅格大图 + 金色标题 + 橄榄色块**，无法无损中文化；按视觉骨架用文字重建：
+
+```python
+def cover(doc, meta):
+    blank(doc, 3)
+    for _ in range(2):                       # 橄榄色装饰条（原版左侧色块）
+        p = pf(doc.add_paragraph(), line=10)
+        shade(p, '5A553A')                   # w:shd 段落底色
+    # 英文原书名（浅灰）→ 金色分隔线 → 中文主标题（34pt 金色加粗）
+    # → 作者 → 序者 → MANNING / SHELTER ISLAND（字距 100）
+```
+
+**封面页不挂页眉页脚**：`cover()` 写在第一节，版权页/简目用
+`doc.add_section(WD_SECTION.NEW_PAGE)` 另起一节，并对新节设
+`sec.header.is_linked_to_previous = False` 后才写页眉。否则封面会印上页码「1」，
+比没有封面更显眼。
+
+### R4. 目录页码必须“先算后建”，且算的集合要含封面
+
+正确的依赖顺序（错一步页码就全错）：
+
+```
+封面 docx → 封面 PDF → chapter_pages.py（含封面，正文从第 4 页起）
+→ build_cover.py 用新页码重出封面 → 封面 PDF 重转 → merge_book.py
+```
+
+实测踩过：先建封面（目录写 `前言 1`），再插入封面 3 页，正文实际从第 4 页开始，
+目录全错。`chapter_pages.py` 必须把 `cover` 作为第一行参与累加。
+
+**部扉页不要占用章号列。** 简目里「第 1 部分」和「第 1 章」都印 `1`，读者会以为重复。
+部扉页的章号列留空，标题写成 `第 1 部分　拓展基础`。
+
+### R5. 图内文字擦除：`_mode_color` 滤掉深色会误伤彩色底
+
+症状：南美洲地图的紫/红/绿色圆上，中文标签周围留一圈**白色方块**，
+还叠着原来英文的白字残影。
+
+根因在取底色的众数函数里有一行“跳过深色墨迹”：
+
+```python
+if lum < 175:  continue     # ← 紫色 (118,61,151) 的 lum≈94，被当成墨迹丢掉
+```
+
+于是内圈众数只剩白字 → 底色判成白色 → 在白底上擦、在白底上写，彩色圆上就出现白块。
+
+**修法：只跳过“深色且不彩”的像素**：
+
+```python
+lum = (c[0]*299 + c[1]*587 + c[2]*114) / 1000
+sat = max(c) - min(c)
+if lum < 175 and sat <= 12:      # 黑字跳过；深紫/深红保留
+    continue
+```
+
+**再加一层保险**：优先用 **bbox 外 6px 环带**（完全不含文字）的颜色，
+只要它与内圈亮度差 > 40，就以环带为准。这样黑字块、白字块都正确。
+
+```python
+if colored(ring):                                  # 环带是彩色 → 最可信
+    return ring, (x0-3, y0-3, x1+3, y1+3)
+if colored(inner):
+    return inner, (x0-3, y0-3, x1+3, y1+3)
+if abs(luma(inner) - luma(ring)) > 40:
+    return ring, (x0-4, y0-4, x1+4, y1+4)
+```
+
+### R6. 有些图内标签注定做不干净：接受“保留原文”
+
+地图上直接压在多色区块的国名（`Brazil`、`Argentina`…），标签框**横跨两个以上色块**，
+单色擦除必然留斑；改成“中文标签 + 引线重排”需要手工给每个标签指定新坐标，无法自动化。
+
+判断标准：**擦除框内是否只有一种底色**。不是，就整块 `KEEP` 保留英文原像素，
+并在交付说明里列出这些位置。这比在图上留白斑或白字残影好得多——
+读者能接受英文地名，不能接受一块块白补丁。
+
+### R7. 小图别拉伸到满栏
+
+`w_cm = orig_w / ORIG_TEXT_W * TEXT_W` 会把 237pt 宽的小图放大到 16cm 满栏，
+文字边缘立刻发虚。加一条上限：
+
+```python
+w_cm = min(TEXT_W_CM,
+           orig_w / ORIG_TEXT_W_PT * TEXT_W_CM,
+           orig_w * 1.15 * 2.54 / 72)      # 最多放大到原版面的 1.15 倍
+```
+
+配套把小图的采样密度提到 450dpi（`if clip.width < 300 or clip.height < 240`）。
+像素够、尺寸不放大，缩到 10cm 时仍有 240dpi 以上。
+
+### R8. 摘要列表的最后一项会单独占一页
+
+`layout_check` 报「整页只有一行的页数：1」，`find_blank` 报「近空白页」。查下来是
+某章“小结”列表的最后一条刚好溢出到新页——上一页已排满，这属于自然分页，
+**不要为了凑页去硬改正文**，也不要加 `keepNext` 把整页内容往前拽（会引发新溢出）。
+
+可以做的只有两件：
+
+1. 该条译文明显啰嗦（中日韩文字比英文省空间）→ 压一句，往往就回填了；
+2. 压了仍在下一页 → 判定为正常章末页，在交付说明里写明。
+
+判定“是否章末页”不要靠肉眼：
+
+```python
+nxt = [p for p, t in chapters if p > pn]
+is_last = bool(nxt) and pn == nxt[0] - 1
+```
