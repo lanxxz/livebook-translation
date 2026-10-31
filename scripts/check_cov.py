@@ -49,10 +49,15 @@ WORK = os.path.join(ROOT, 'work')
 
 
 def parse_zh(path):
-    """返回 _zh.txt 里出现过的块号集合。"""
+    """返回 `_zh.txt` 里出现过的块号集合。
+
+    注意：块头格式是 `@@B 12 p   # p45`——**块号后面跟着类型和注释**，
+    不是只有块号。早期的 `^@@B\\s+(\\d+)\\s*$` 会一条都匹配不到，
+    于是「多余 0 / 缺全部」看着像没开工。这里按「块号 + 任意尾随」解析。
+    """
     keys = set()
     for raw in open(path, encoding='utf-8-sig').read().split('\n'):
-        m = re.match(r'^@@B\s+(\d+)\s*$', raw.strip().lstrip('\ufeff'))
+        m = re.match(r'^@@B\s+(\d+)\b', raw.strip().lstrip('\ufeff'))
         if m:
             keys.add(int(m.group(1)))
     return keys
@@ -90,6 +95,31 @@ def parse_fig_zh(path):
     return cur
 
 
+def needs_translation(text):
+    """判断一个图内文字组是否**应当**译成中文。
+
+    判定必须与「渲染器实际会不会画中文」一致，否则会误报缺译：
+      · 不含字母/汉字（纯数字、`</>`、``` ```` ）→ 渲染器 SKIP_SYMBOL，不译
+      · 代码围栏或以 `{` 开头 → SKIP_CODE，不译
+      · 长且含大量代码符号（diff/路径/花括号）→ SKIP_CODE，不译
+    只有「会被渲染」的组才计入待译数。
+    """
+    s = str(text or '').strip()
+    if not s:
+        return False
+    if not re.search(r'[A-Za-z\u4e00-\u9fff]', s):
+        return False
+    if re.match(r'^\s*(```|~~~)', s) or s.startswith('{'):
+        return False
+    strong = re.search(r'--git|@@|def \w+\(|\w+\.(py|js|ts|java|go|yaml|json)\b', s)
+    if strong:
+        sym = len(re.findall(r'[{}\[\]();=<>|]|(?:^|\s)--git|(?:^|\s)[-+@]{1,3}\s',
+                             s, re.M))
+        if sym > len(s) * 0.025:
+            return False
+    return True
+
+
 def check(doc, verbose=True):
     lay_p = os.path.join(WORK, doc + '_layout.json')
     if not os.path.exists(lay_p):
@@ -107,22 +137,54 @@ def check(doc, verbose=True):
     extra = sorted(have - allk)
     miss = sorted(allk - have)
 
-    # 图内
+    # 图内待译项：两种来源都要认
+    #   ① `_figtexts.json`（extract_fig_texts.py 产出，块式结构）
+    #   ② `_layout.json` 里 figure 块的 `groups`/`blocks`（本项目直接解析进 layout）
     ft_p = os.path.join(WORK, doc + '_figtexts.json')
-    need, fmiss, fextra = set(), [], []
+    need = set()
     if os.path.exists(ft_p):
         ft = json.load(open(ft_p, encoding='utf-8'))
         need = {(k, str(b['id'])) for k, v in ft.items()
-                for b in v.get('blocks') or []}
-        fzh_p = os.path.join(WORK, doc + '_figzh.txt')
-        got = set(parse_fig_zh(fzh_p).keys()) if os.path.exists(fzh_p) else set()
+                for b in v.get('blocks') or []
+                if needs_translation(b.get('text') or b.get('en'))}
+    else:
+        for pn, blks in lay.items():
+            fi = 0
+            for b in blks:
+                if b.get('type') != 'figure':
+                    continue
+                key = b.get('key') or ('p%s_f%d' % (pn, fi))
+                fi += 1
+                grp = b.get('groups') or b.get('blocks') or []
+                for gi, g in enumerate(grp):
+                    if needs_translation(g.get('en') or g.get('text')):
+                        need.add((key, str(gi)))
+    fmiss, fextra = [], []
+    if need:
+        got = set()
+        tr_p = os.path.join(WORK, doc + '_figtrans.json')
+        if os.path.exists(tr_p):
+            try:
+                tr = json.load(open(tr_p, encoding='utf-8'))
+            except Exception:
+                tr = {}
+            got = {(k, str(i)) for k, v in tr.items()
+                   for i, t in v.items() if str(t).strip()}
+        elif os.path.exists(os.path.join(WORK, doc + '_figzh.txt')):
+            got = set(parse_fig_zh(os.path.join(WORK, doc + '_figzh.txt')).keys())
         fmiss = sorted(need - got)
         fextra = sorted(got - need)
 
-    ok = not extra and not miss and not fmiss and not fextra
-    print('%-8s 块 %3d  多余 %d  缺 %d   图内 %3d 条  缺 %d  多余 %d %s'
+    # 「图内多余」只是提示，不算失败：译文里给了被判定为免译的组（纯符号、
+    # 重复标签），渲染器会照常采用，不会报错。真正要清零的是「块号多余」。
+    fextra_note = ''
+    if fextra:
+        fextra_note = '  图内多 %d（提示）' % len(fextra)
+
+    ok = not extra and not miss and not fmiss
+    print('%-8s 块 %3d  多余 %d  缺 %d   图内 %3d 条  缺 %d%s %s'
           % (doc, total, len(extra), len(miss), len(need),
-             len(fmiss), len(fextra), 'OK' if ok else ''))
+             len(fmiss), fextra_note, 'OK' if ok else ''))
     if verbose:
         if extra:
             print('      多余块号:', extra[:20], '…' if len(extra) > 20 else '')
