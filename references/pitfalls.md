@@ -1661,3 +1661,210 @@ BOOK_OUT_NAME="书名（修订版）.docx" $PY $S/merge_book.py
 4. 逐章看最后一页：小结是否真的存在，而不是一条孤立 bullet。
 
 本项目两次最严重缺陷（整页漏译、图注串行）都不是自动闸门发现的。
+
+---
+
+## W. 450 页 Manning 2026 整本翻译（25 份分册 / 406 页合订实战）
+
+项目：《AI Agents and Applications: With LangChain, LangGraph, and MCP》（Roberto Infante, Manning 2026, 450 页）。
+图内文字在文字层，走骨架流水线；产出 25 份分册 + 整书合订 docx/PDF，约 3,780 块译文、约 2,000 条图内文字译文。
+**本组专收「跨会话逐章推进 + 整书合订」这一段的新坑**，与 V 组（范围审计）互补。
+
+### W1. 同版式项目可整套复用，但常量不能照抄
+
+工作区里已有同出版社、同页面尺寸（531×636pt）的两色版项目，直接复制 39 个脚本，
+只重建字体表与判据，省掉解析器调试的大头。**但以下四类必须按新书实测重设**：
+字体族名、页眉阈值、章首页判据、项目符号字符。照抄旧常量是 W2–W5 的共同根因。
+
+### W2. 页眉阈值把代码清单首行吞了
+
+`if bb[3] < 60: continue` 在旧书成立，本书页眉 y≈27 但**代码清单从 y≈51 起**，
+首行被当页眉丢弃。改为 44 后恢复。判据前置动作：dump 一页的 y 分布，
+分别标出页眉底、正文首行、代码首行，再定阈值。
+
+### W3. 字体族名差一个后缀，正文全被判成图内文字
+
+旧书 `NewBaskervilleStd-*` / `ITCFranklinGothicStd-Dem`，本书是
+`NewBaskerville-Roman`（无 `Std`）/ `FranklinGothic-DemiItal` / `JetBrainsMonoNL`。
+`BODY_FONTS` / `CODE_FONTS` / `HEAD_FONTS` 三张表都要按 `page.get_text('dict')`
+的实测值重建；只改其中一张时，症状是「大段正文消失、图里多出陌生文字」。
+
+### W4. Wingdings 私有区项目符号 + 缩格续行
+
+本书列表符号是 `\uf0a1`（私有区 `\uf000-\uf0ff`），不在 `[•·▪¡]` 中，
+导致 bullet 列表被并进普通段落。三处要一起改：
+
+- 列表识别正则含 `\uf000-\uf0ff`；
+- **缩格续行判据**：续行 `x0 > 版心左边界 + 4pt` 才并回上一项，
+  否则「列表后的新段落」会被整个吞进最后一项；
+- 连续项目符号项合并到**同一个** list 块（每项独立成块会让骨架与译文错位）。
+
+### W5. 章首页没有装饰性大章号
+
+旧判据「size>=40 的孤立数字」在本书失效：章首页只有 30pt 斜体章题 +
+`This chapter covers` 列表 + 下半页导言。改为按「含 `This chapter covers`
+且有 30pt `NewBaskerville-Italic` 章题」判定，章号用
+`{物理页: 章号}` 映射表（本书物理页 = 印刷页 + 28）。
+附录首页是 `appendix A` + 标题（也是 30pt 斜体），要识别成 heading，
+否则标题落进 figtext 被当图内文字。
+
+### W6. 图注是「一组行」，不是一行 —— 裁不干净就留英文残影
+
+Manning 图注常由三段组成：`Figure 编号` + **同一视觉行的长描述（y0 更小）**
++ 下面两行续文（字体甚至换成 `JetBrainsMonoNL,Bold` 7.5pt）。
+只按 Figure 行 y0 裁剪，会在图底留下半行英文残影（V3 的加强版）。
+可靠做法：
+
+```python
+cap_y = min(ln.bbox[1] for ln in lines if CAP_RE.match(ln.text))
+grp = [ln for ln in lines
+       if cap_y - 12 <= ln.bbox[1] <= cap_y + 40
+       and ln.size <= 9.5
+       and (CAP_RE.match(ln.text) or 图注字体族命中)]
+fig.lines = [ln for ln in fig.lines if id(ln) not in {id(x) for x in grp}]
+fig.bbox = (x0, y0, x1, min(fig.bbox[3], min(g.bbox[1] for g in grp) - 2))
+fig.caption = ' '.join(g.text for g in sorted(grp))   # 英文全文存下
+```
+
+`CAP_RE` 要同时匹配 `Figure` 与 `Table`；排序时把 Figure 行放最前。
+图注英文全文保留在 figure 块里，译者在 `CAP:` 行写中文，不丢信息。
+
+### W7. 裁出图注后，figure 分支必须自己输出图注并 keepNext
+
+旧生成器的 figure 分支**只插图、不写 caption**（因为旧项目把图注留在图里）。
+裁图注后若不补，中文版会出现「有图没图注」；补了还要给图片段设
+`keep_with_next`，否则图在页底、图注被推到下一页。
+两处一起改，改完目视一页含图页确认「图 + 图注同页」。
+
+### W8. 空列表块与孤立页码要在冻结解析器之前清掉
+
+PDF 折行会留下 `items=['']` 的空 list 块、`xxvi` 这类孤立页码，
+`check_zh.py` 会判空块。删块会**重排块号**，所以必须在生成骨架前
+扫描并删除、然后重跑 `slice_layout.py` + `mk_skeleton.py`。
+本次共清 17 个空块 + 1 个页码，涉及 ch03/04/07/08/11 等。
+
+### W9. 数据表「按列排版」把整列塞进一个单元格
+
+表 C.1 被解析成 2 行 4 列、每格 10 个数字；表 E.2 是 5×5、每格 10 个分数。
+这类表按列排版，通用网格提取必错。两种处理按难度选：
+
+- 能重建（行列关系清楚）→ `fix_tables_<doc>.py` 把 figure 改成真 table，
+  手写 `grid.data`（表 2.1/2.2 成功还原为 7×2 / 6×2）；
+- 不能重建（数据密集、模型名/许可证/网址多）→ 改成 figure 原表图 +
+  中文表题，保留英文数据，与「数据表 KEEP」策略一致。
+
+**改成 figure 时必须在 `book_figtexts.json` 补一个 `{'blocks': []}` 的同名 key**
+（如 `p409_f0`），否则 `render_figs.py` 不产图、docx 静默缺图。key 名要与
+`convert.py` 的 `p{page}_f{页内序号}` 一致；改完跑 `check_merged_images.py`。
+
+### W10. Part 扉页漏页：`after` 排序键
+
+`check_page_coverage.py` 抓出 5 页 Part 扉页（每页 1000–1800 字导语）未进 docs。
+补成 `kind=part` 的独立 1 页文档，并给 `out_name()` / `sort_docs()` 支持
+`after` 字段（part1 `after=0` → 排序键 0.5，插在 ch01 的 1 之前）。
+**不要并进相邻章**：那会平移该章全部块号，已写译文全部作废。
+
+### W11. 图内译文用「唯一短语映射表」批量生成
+
+图多、重复标签多时（ch04 84 个唯一短语→129 条、ch10 125→180、
+ch08 114→144），逐条手写既慢又易漏。做法是每章一个小脚本：
+
+```python
+c = Counter(b['en'] for v in figtexts.values() for b in v['blocks'])  # 先看唯一数
+M = {'User question': '用户问题', ...}          # 精确映射
+PREFIX = [('In the standard Retrieve-and-Read', '中文长句'), ...]  # 长句前缀兜底
+zh = M.get(en) or next((t for p, t in PREFIX if en.startswith(p)), en)  # 默认 KEEP
+```
+
+PDF 提取的长叙述句常被截断/拼接，精确键匹配不上，所以**前缀规则是必需兜底**。
+默认写英文原文会让渲染器标 `KEEP`，完全合法。生成后统计 OK/KEEP 写进交付说明。
+
+### W12. KEEP 要分层，并按章记比例
+
+保留英文：类名、函数名、代码残片、网址、许可证名、示例查询、
+`Q1/C1/HD1` 这类标识符、`thread_id`、SQL 关键字、数据表数值。
+中文化：流程标签、步骤说明、叙述性注释、云朵/便签里的解释文字。
+栅格截图（LangSmith 追踪、终端、MCP Inspector）**只给中文图注**，界面英文原样留。
+本次记录：ch01 OK92/KEEP73、ch07 OK60/KEEP99、ch10 OK88/KEEP92、
+appE OK37/KEEP105。比例随内容变化，不必追求「图上零英文」。
+
+### W13. OpenBLAS 内存错误会让整章插图静默消失 ★
+
+`render_figs.py` 偶发：
+
+```
+OpenBLAS error: Memory allocation still failed after 10 retries, giving up.
+```
+
+进程直接退出，`figs/<doc>/` 为空；而 `build_doc.py` 仍会生成缺图 docx，
+`audit.py` 只报「块序列完全一致」，看不出异常。**根因是 BLAS 多线程内存分配**。
+修复：在 `build_doc.py` 的 `run()` 里固化子进程环境
+
+```python
+env = dict(os.environ, PYTHONIOENCODING='utf-8',
+           OPENBLAS_NUM_THREADS='1', OMP_NUM_THREADS='1')
+```
+
+并在交付前跑 `check_merged_images.py`：inline 图片数 == 唯一 rId == media 数 == 图块数。
+发现某章图片数不对，先查 `figs/<doc>/_report.json` 是否存在。
+
+### W14. 合订前置页尺寸必须等于分册，否则全书重排膨胀 ★
+
+本次前置页自建为 16×23cm，而分册是 A4（21×29.7cm / 边距 2.4, 2.2）。
+`docxcompose` 以 master 的节设置为准，合并后**所有分册被按小页面重排**，
+分册合计 400 页膨胀成 628 页（不是空白页，是文字密度变了）。
+改回 A4 后恢复 406 页。
+
+```python
+ref = Document(plan[0]['path']).sections[0]
+assert abs(front.section.page_width - ref.page_width) < 1000, '前置页尺寸与分册不一致'
+```
+
+**合订前读任一分册 `sections[0]` 的 page_width/height/margins 并复制到前置页**。
+
+### W15. 目录页码用文本定位会被目录页自己骗到 ★
+
+V5 建议「按标题文本在合订 PDF 里定位真实起始页」。本次 25 条**全部被误定位成 2/3/4**——
+因为目录页本身就印着全部章名，第一次命中必然在目录页。
+当合订是「逐份 PDF 拼接 / 分册页数不变」时，改用**页数累加法**更可靠：
+
+```python
+F = 前置页单独转 PDF 的页数                  # 本次 4
+acc, pages = F, {}
+for item in plan:
+    pages[item.id] = acc + 1
+    acc += pymupdf.open(item.pdf).page_count
+# 校验：总页 == F + Σ分册页数 + 索引页数   # 406 == 4 + 400 + 2
+```
+
+两轮校准照做（占位目录 → 合订 → 累加回填 → 重新合订），只是把「定位」换成「累加」。
+目录条目文字直接用页眉 label（`第 N 章　标题` 已含标题），不要再拼一次 title，
+否则出现「第 1 章　AI 智能体与应用导论　AI 智能体与应用导论」。
+
+### W16. 「图内多 N（提示）」不是错误，不要清零
+
+`check_cov.py` 的 `need` 只统计需要翻译的图内块；给免译符号块、纯数字编号
+也写了译文时会报「图内多 N（提示）」，脚本明确**不算失败**，渲染器照常采用。
+真正必须清零的只有「多余块号」。为消除提示去删译文是白费功夫。
+
+### W17. 跨会话逐章推进：紧凑原文 + 固定动作 + 磁盘进度
+
+一章一交付、每轮 1–2 份时，先把 `_skel.txt` 转成「紧凑原文」：
+`@@B n type` + EN，**code 块只写 `[CODE nL]`**（本章 43k 字符里代码占一半）。
+每份固定动作：评估规模/空块 → 紧凑原文 → 双闸门 → `build_doc.py` →
+转 PDF → 图片三数 → 目视一张多块图 → 更新 `PROGRESS.md` 与当日日志。
+进度以磁盘产物为准；`PROGRESS.md` 放状态表、质检记录、续做命令、收尾说明。
+
+### W18. 编译性处理要集中登记
+
+原书没有独立图注的「代码清单标题图」、被 PDF 拆成两块的插图
+（图 1.8 / 5.1 / 9.1 / 14.1）、跨两页的表格图，中文版各配一条描述性中文图注。
+这是编译性加注，不是原文；必须在 `PROGRESS.md` 收尾说明与交付说明里统一列明。
+
+### W19. 交付说明模板：7 类已知限制 + 术语索引自动生成
+
+本书交付说明固定写 7 类：① 栅格截图保留英文（列页码/比例）② 数据表保留英文数据
+③ KEEP 标识符 ④ 编译性中文图注 ⑤ 原书笔误与断句处理 ⑥ 原书索引改为术语索引
+⑦ 版权性质（AI 辅助翻译、非官方授权译本）。
+术语表**开工就建**，收尾时从术语表 Markdown 自动解析生成中英索引（本次 64 条），
+不要到最后一章才临时凑。
