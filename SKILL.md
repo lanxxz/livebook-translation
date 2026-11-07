@@ -236,6 +236,8 @@ $PY $S/audit_book.py work/chapters.json
   术语首次出现，生成 `build_front.py` 的附录 terms 块（模板 `assets/glossary.example.json`）
 - `compare_pages.py <原书.pdf> <译本.pdf> <原页码> <译页码>` — 两页并排渲染成 PNG，
   改版式参数后目视回归用
+- `run_raster.py <figtexts.json> <figtrans_dir> <cache_dir> <out_dir>` — 栅格图批量
+  中文化（擦英文 → 写中文 → 出报告），`MISSING` / `OVERFLOW` 非 0 时退出码 1
 
 **骨架文本流水线专用（第三种流程）**
 
@@ -469,33 +471,25 @@ X 组 233 页并行交付 / V 组交付前范围审计），动手前先读对�
    ocr_figs.py    erase_labels    px_draw      report + 看图
 ```
 
-**技能自带两个脚本，直接可用：**
+**技能自带三个脚本，直接可用：**
 
 ```bash
 # ① 提取：裁图 → OCR → 过滤 → 按基线聚合 → 双套坐标，结果按图缓存
 $PY $S/ocr_figs.py 书.pdf work/book_figtexts.json --dpi 300 --pages 1-374
 
 # ②③ 擦除 + 写中文（内部已实现两阶段、彩块判定、结构保护）
-$PY - <<'EOF'
-import sys; sys.path.insert(0, r'<技能 scripts>')
-from fig_raster import process_figure
-import json
-ft = json.load(open('work/book_figtexts.json', encoding='utf-8'))
-rep = {'rendered': [], 'kept': [], 'MISSING': [], 'OVERFLOW': [], 'SMALL': []}
-for key, v in ft.items():
-    tr = json.load(open(f'work/{key}_figtrans.json', encoding='utf-8'))
-    process_figure(f'work/ocr_cache/{key}.png', v['blocks'], tr, rep,
-                   scale=v['scale'], out_path=f'figs/{key}.png')
-print({k: len(x) for k, x in rep.items()})
-EOF
+#    译文放 work/<key>_figtrans.json；裁图缓存由 ocr_figs.py 写到 work/ocr_cache/
+$PY $S/run_raster.py work/book_figtexts.json work work/ocr_cache figs
+#    → 打印 rendered / kept / MISSING / OVERFLOW / SMALL
+#    → MISSING 或 OVERFLOW 非 0 时退出码 1，可直接当闸门用
 ```
 
 `fig_raster.py` 里每一条判据都标注了它对应的失败编号（T1–T5），改之前先读注释。
 `PROTECTED` 是术语保护表，按书的领域填；留空只是断行不够聪明，不会出错。
+只有需要自定义逐图逻辑（换输出命名、分页处理）时，才直接调 `fig_raster.process_figure`。
 
 > ①②③ 的内部细节（双坐标 OCR 输出、「墨迹 − 结构」擦除判据、本地底色填充、
 > 两阶段绘制）见 `references/workflows.md`「栅格图内文字流程细节」。
-> 上面示例里的 heredoc 是 bash 写法；Windows PowerShell 请把片段写成临时 `.py` 文件再执行。
 
 ### ④ 报告三件套 + 必须看图
 

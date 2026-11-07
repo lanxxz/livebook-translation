@@ -160,7 +160,7 @@ $PY $S/qa_translation.py --root . --out out/译文自查报告.md   # 内容级�
 livebook-translation/
 ├── SKILL.md                  # Agent 操作手册（必读）：核心认知 / 五条流程 / 交付前必查
 ├── README.md                 # 本文件
-├── scripts/                  # 43 个可复用脚本（见下）
+├── scripts/                  # 44 个可复用脚本（见下）
 ├── references/
 │   ├── pitfalls.md           # 踩坑清单 A–X 组（约 2300 行，动手前先扫）
 │   ├── workflows.md          # 流程细节（SKILL.md 瘦身移出的扩展阅读）
@@ -181,7 +181,7 @@ livebook-translation/
 | 生成 | `build_doc.py` `build_docx.py` `build_front.py` `build_front_pages.py` `convert_pdf.py` |
 | 合订 | `merge_book.py` `build_book_pdf.py` `add_pdf_outline.py` `chapter_pages.py` |
 | 校验 | `check_cov.py` `check_zh.py` `audit.py` `audit_book.py` `check_blocks.py` `check_merged_images.py` `check_page_coverage.py` `find_blank.py` `layout_check.py` `verify_docx.py` `qa_translation.py` |
-| 辅助 | `bookconf.py` `preview_html.py` `build_glossary.py` `compare_pages.py` |
+| 辅助 | `bookconf.py` `preview_html.py` `build_glossary.py` `compare_pages.py` `run_raster.py` |
 
 ---
 

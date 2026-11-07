@@ -90,6 +90,8 @@ _FONT_CANDIDATES = {
         r'C:\Windows\Fonts\simkai.ttf',
         r'C:\Windows\Fonts\msyh.ttc',
         r'C:\Windows\Fonts\simsun.ttc',
+        r'C:\Windows\Fonts\SourceHanSansSC-Regular.otf',
+        r'C:\Windows\Fonts\NotoSansCJKsc-Regular.otf',
         '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
         '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
         '/System/Library/Fonts/PingFang.ttc',
@@ -113,6 +115,36 @@ _FONT_CANDIDATES = {
 }
 
 
+def _scan_font_dirs():
+    """字体目录兜底扫描（带 ~/.fonts 等自定义安装位置）。"""
+    keys = ('YaHei', 'NotoSansCJK', 'SourceHanSans', 'WenQuanYi', 'uming', 'ukai')
+    for d in ('/usr/share/fonts', '/usr/local/share/fonts',
+              '/System/Library/Fonts',
+              os.path.expanduser('~/.fonts'),
+              os.path.expanduser('~/.local/share/fonts')):
+        if not os.path.isdir(d):
+            continue
+        for root, _, files in os.walk(d):
+            for f in files:
+                if any(k in f for k in keys):
+                    return os.path.join(root, f)
+    return None
+
+
+def detect_font(key):
+    """只按候选表探测字体，**不读 book.json**。
+
+    供 check_env.py 等轻量场景复用，避免候选表在两处各维护一份。
+    返回路径或 None。
+    """
+    for cand in _FONT_CANDIDATES.get(key, ()):
+        if os.path.exists(cand):
+            return cand
+    if key.startswith('font_cn'):
+        return _scan_font_dirs()
+    return None
+
+
 def font_file(key):
     """字体文件路径。book.json 里对应 key 非空则优先，否则按候选表探测。
 
@@ -124,9 +156,9 @@ def font_file(key):
         if not os.path.exists(p):
             raise SystemExit(f'book.json 配置的字体路径 {key}={p} 不存在')
         return p
-    for cand in _FONT_CANDIDATES.get(key, ()):
-        if os.path.exists(cand):
-            return cand
+    hit = detect_font(key)
+    if hit:
+        return hit
     raise SystemExit(
         f'未找到 {key} 字体文件。请在 book.json 配置 "{key}" 字段，'
         f'例如 "font_cn": "C:/Windows/Fonts/msyh.ttc"')
