@@ -160,7 +160,7 @@ $PY $S/qa_translation.py --root . --out out/译文自查报告.md   # 内容级�
 livebook-translation/
 ├── SKILL.md                  # Agent 操作手册（必读）：核心认知 / 五条流程 / 交付前必查
 ├── README.md                 # 本文件
-├── scripts/                  # 39 个可复用脚本（见下）
+├── scripts/                  # 40 个可复用脚本（见下）
 ├── references/
 │   ├── pitfalls.md           # 踩坑清单 A–X 组（约 1900 行，动手前先扫）
 │   └── layout-heuristics.md  # 版式判据：字体分类 / 图区聚类 / 段落合并 / 各书实测参数
@@ -173,7 +173,7 @@ livebook-translation/
 
 | 阶段 | 脚本 |
 |---|---|
-| 解析 | `parse_layout.py` `dump_layout.py` `slice_layout.py` `extract_fig_texts.py` `block_tool.py` `remap_seq.py` |
+| 解析 | `parse_layout.py` `dump_layout.py` `slice_layout.py` `extract_fig_texts.py` `block_tool.py` `remap_seq.py` `apply_styles.py`（版式语义打标） |
 | 待译骨架 | `mk_skeleton.py` `pairs.py` `export_pairs.py` `make_chapter.py` |
 | 图内文字 | `render_figs.py`（文字层） · `ocr_figs.py` `fig_raster.py`（栅格） · `gen_figzh_map.py`（批量映射） |
 | 译文转换 | `convert.py` `cov.py` `realign_zh.py` |
@@ -195,6 +195,10 @@ livebook-translation/
    规范保留英文、双重否定转肯定），必须逐条写清原因，不能只报「通过」。
 
 工程全绿 ≠ 译文没问题；三层的结论分别写进 `质检报告.md` 与 `译文自查报告.md`。
+
+还有一层**版式保真目视**（前三层都查不出）：把原书页与成品页并排导出 PNG，
+对照标题层级、底色侧栏框、对话说话人标签、缩进、部分扉页留白。教学对话、
+框内提问、Part 扉页这三类最容易在「压平成线性段落」时丢失语义，详见 pitfalls X16–X21。
 
 ---
 

@@ -2128,3 +2128,122 @@ ch04/ch07/ch10 的一般叙述用「词元」。
 - **下游一致性**：`finalize.py` 跑完后，分册 PDF 时间戳、合订本、
   两级书签数、目录页码抽查四者必须同时是最新的。
 
+### X16. 「模型输出保留英文」有边界：教学对话不是字面量
+
+翻译规范里「模型输出、提示词示例、代码、SQL 保留英文」容易被过度套用。
+本次把整章 User/GPT 逐轮对话（约 60 块）全保留英文，读者根本读不懂书在讲什么，
+用户反馈「没有翻译，并柔和在一起，缺乏阅读感」。
+
+判据不是「这段是不是模型生成的」，而是：
+
+- **读者要读懂的内容**（演示对话、示例评论、模型回答的叙述部分）→ 译中文；
+- **读者要复制或核对的字面量**（SQL、代码、`Personal computers.` 这类输出标签、
+  英文落款、API 名、URL）→ 保留英文。
+
+`audit_book.py` 会把这些块报成「漏译」，别为了清零去改规范；但反过来，
+**「漏译复核 0 处」也不能证明对话可读**。要单独抽一页对话目视。
+
+### X17. PDF 把说话人标签混进正文行，轮次必须从页面重建
+
+Manning 对话排版是「`User:` / `GPT:` 斜体标签在左 + 正文缩进」。
+PDF 提取把标签并进首行，甚至插到句子中间：
+
+```
+B29  'Have a look at the following product review: User :'
+B31  'Based on the review, the BananaBook is a product that the reviewer pur-GPT :'
+B50  'refer to? Answer concisely: Electronics. GPT :'      ← 一轮 User + 一轮 GPT 挤在一块
+B72  '... producing Banana-User : Book! ... GPT :'          ← 标签插在断词中间
+```
+
+不能靠 `text.startswith('User')` 判断轮次。做法：
+
+1. 渲染原书对应页，**按页面目视重建每一轮**；
+2. 译文里用 `**用户：**` / `**GPT：**` 加粗标签（`add_rich` 会自动渲染粗体）；
+3. 一块含两轮时用 `■` 分行（`convert.py` 转硬换行），**不要拆块**——拆块要
+   layout/skeleton/译文四处同步重编号，代价远大于收益；
+4. 被断词劈开的续行（如 `pur-` / `chased`）按语义重组到前一块，别留悬空半句；
+5. 给这些块打 `dialog` 样式：左缩进 0.75cm + 左侧细线 + 小段距。
+
+**特别坑**：`build_docx.py` 里「前块不以句末标点结尾就与后块拼接」的
+文字环绕图修复逻辑，会把「用户续行」和「GPT 首行」粘成一段，说话人标签又挤在一起。
+合并判据必须加 `not prev.get('style') and not cur.get('style')`——
+**带版式语义的块一律不合并**。
+
+### X18. 侧栏框 / 提示框是内容，不是装饰
+
+原书有 38 个米黄色矩形（`fill ≈ (0.97, 0.96, 0.91)`，`w>200`、`h>25`），
+里面是 DEFINITION / TIP / 提问式侧栏：
+`Which model should I choose?`、`What are hallucinations?`、
+`Why am I getting different output?`、`What is the .csv format?`、
+`How to deal with multiline queries` ……
+用户反馈「有一些提问是在特定方块内，翻译后也没有了」——文字其实译了，
+但**框没了、标题压成普通正文，看起来就像内容消失**。
+
+做法（只加字段、不动块序）：
+
+```python
+# 1. 按 fill 色从 PDF drawings 提取框 bbox（排除章首页「本章内容」框）
+f, r = dr.get('fill'), dr.get('rect')
+if f and r and r.width > 200 and r.height > 25 \
+   and abs(f[0]-0.97)<0.03 and abs(f[1]-0.96)<0.03: boxes[pno].append(r)
+
+# 2. 落在框内（重叠 >35%）的块打 style；与框内第一行标题匹配的打 sidebar_head
+# 3. WARNING / TIP / NOTE 开头的块打 warning / tip
+# 4. 呈现层给段落加 w:shd 底纹 + w:pBdr 左边线，连续段段距设 0 才不留白缝
+```
+
+`sidebar_head` 用深蓝粗体，`warning` 暖橙底，`tip` 浅蓝底。
+章首页的「This chapter covers」框由 `chapter_open` 自己渲染，别重复打框。
+
+### X19. 版式语义要作为数据字段透传，别写进译文文本
+
+```
+book_layout.json  加 style 字段（不改块数/顺序/type）
+   ↓ slice_layout.py
+<doc>_layout.json
+   ↓ convert.py: blocks[-1]['style'] = b.get('style')
+<doc>_trans.json
+   ↓ build_docx.py 按 style 选底纹/缩进/字号
+docx
+```
+
+这样 `_zh.txt` 仍是纯中文可编辑文本，`check_cov.py` / `check_zh.py`
+只比 type 与块数，**双闸门完全不受影响**；换一本书只要改打标规则，
+渲染层不动。反面做法是把 `::USER::` 之类标记写进译文，既污染正文又容易漏渲染。
+
+### X20. Part / 部分扉页要单独渲染
+
+原书扉页 = 米黄底纹块里的 `Part 1` + 大号蓝色斜体部分标题 + 大号引言 +
+各章介绍 + 下半页留白。中文版若用普通段落，用户一眼就看出「部分标题没特别处理」。
+
+给该页**第一个非 figure 块**打 `part_title`（第一块常是被 `slice_layout.py`
+过滤掉的装饰图，直接取 `blks[0]` 会打空），译文用 `■` 分成两行：
+第一行 `第 1 部分　认识语言模型` 渲染成 23pt 带米黄底纹的大标题，
+第二行渲染成 13pt 斜体引言，中间加 `hr_rule()` 分隔线。
+`docs.json` 的 `kind: part` + `after` 已保证它在合订顺序里排在章前。
+
+### X21. 双闸门全绿 ≠ 排版还原：必须并排目视
+
+本次 5 类问题（对话、框内提问、版式压平、部分扉页、阅读节奏）
+**没有任何一条会被现有校验脚本发现**：块数对、类型对、图片三数对、
+页码对、漏译复核 0 处。是用户把原书页和成品页并排看才发现的。
+
+交付前固定加一步：把原书 2–3 个代表性页面与成品对应页各渲染成 PNG，
+逐项对照「标题层级 / 底色框 / 对话标签 / 缩进 / 留白」。
+`qa_translation.py` 可以顺带统计各类 `style` 的块数（对话 35、侧栏 56、
+提示 12、扉页 3），数量为 0 就说明打标没生效。
+
+### X22. 目标 PDF 被预览面板独占时，别硬删硬覆盖
+
+展示过的成品 PDF 可能被外部进程独占：可读、`os.access(W_OK)=True`，
+但 `open(p,'r+b')` 与 `pymupdf.saveIncr()` 都报 `Permission denied`，
+`os.remove` 被 safe-delete 拦截，`os.replace` 也 `WinError 5`。
+整条合订链会在最后写书签时中断。
+
+做法：`finalize.py` 先试 `open(target,'r+b')`，失败就把输出名改为
+`BOOK_FINAL_NAME`（如加「·修订版」）并 `os.environ` 传给下游所有脚本；
+`build_final_book.py` / `add_pdf_outline.py` 的输出名都从该环境变量读。
+分册 docx 过滤条件要用 `'全本' in basename` 而不是精确匹配新名，
+否则会把合订 docx 误当分册再转一次 PDF。**不要**为了覆盖去删文件或结束进程。
+
+
