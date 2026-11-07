@@ -29,7 +29,25 @@ import os
 import re
 import sys
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+def project_root():
+    """向上找含 book.json / docs.json 的目录（脚本放项目根或 scripts/ 都能用）。"""
+    def _up(start):
+        d = os.path.abspath(start)
+        for _ in range(4):
+            if (os.path.exists(os.path.join(d, 'book.json'))
+                    or os.path.exists(os.path.join(d, 'docs.json'))):
+                return d
+            d = os.path.dirname(d)
+        return None
+
+    for start in (os.path.dirname(os.path.abspath(__file__)), os.getcwd()):
+        hit = _up(start)
+        if hit:
+            return hit
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+ROOT = project_root()
 WORK = os.path.join(ROOT, 'work')
 CJK = re.compile(r'[\u3000-\u303f\u4e00-\u9fff\uff00-\uffef]')
 

@@ -852,7 +852,7 @@ for i in range(out.page_count):
 > `do_chapter.py` / `check_all.py` / `qa_pack.py` / `render_chapter.py`。
 > 仅在接手已含这些脚本的旧项目时照此操作；新项目请用 SKILL.md「长书分片流程」里的骨架流水线等价做法。
 
-## 长书分片流程（Manning 类，460 页以上）
+### 原流程正文（pack 流，Manning 类 460 页以上）
 
 核心原则：**手写 `tx_<包>.py` 分片 → 合并核对 → 固化 → 应用 → 出文档**。
 `*_fill.json` 是中间产物，**永远不要拿它当编辑对象**。

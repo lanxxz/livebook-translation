@@ -2,6 +2,7 @@
 """生成"待译骨架"：把 layout 的每块列成 EN + 空 ZH 槽，供人工/代理逐块填空。
 
 用法：python mk_skeleton.py <doc_id> [<doc_id> ...]
+      python mk_skeleton.py --all      # 跑 docs.json / book.json 里的全部文档
 
 输出 work/<doc>_skel.txt 与 work/<doc>_figskel.txt
 骨架格式（只用 %%ZH … %%END 之间是可改区域，其余行不许动）：
@@ -16,8 +17,40 @@ import json
 import os
 import sys
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+
+def project_root():
+    """向上找含 book.json / docs.json 的目录（脚本放项目根或 scripts/ 都能用）。"""
+    def _up(start):
+        d = os.path.abspath(start)
+        for _ in range(4):
+            if (os.path.exists(os.path.join(d, 'book.json'))
+                    or os.path.exists(os.path.join(d, 'docs.json'))):
+                return d
+            d = os.path.dirname(d)
+        return None
+
+    for start in (os.path.dirname(os.path.abspath(__file__)), os.getcwd()):
+        hit = _up(start)
+        if hit:
+            return hit
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+ROOT = project_root()
 WORK = os.path.join(ROOT, 'work')
+
+
+def all_docs():
+    """docs.json → book.json 的 docs 键；都没有则返回空列表。"""
+    p = os.path.join(ROOT, 'docs.json')
+    if os.path.exists(p):
+        return [d['id'] for d in json.load(open(p, encoding='utf-8'))]
+    conf = os.path.join(ROOT, 'book.json')
+    if os.path.exists(conf):
+        cfg = json.load(open(conf, encoding='utf-8-sig'))
+        if cfg.get('docs'):
+            return [d['id'] for d in cfg['docs']]
+    return []
 
 
 def emit(fh, idx, kind, en_lines, hint):
@@ -32,7 +65,11 @@ def emit(fh, idx, kind, en_lines, hint):
 
 
 def main():
-    for doc in sys.argv[1:]:
+    args = [a for a in sys.argv[1:] if a != '--all']
+    docs = all_docs() if '--all' in sys.argv else args
+    if not docs:
+        sys.exit(__doc__)
+    for doc in docs:
         lay = json.load(open(os.path.join(WORK, doc + '_layout.json'), encoding='utf-8'))['pages']
         out = []
         idx = 0

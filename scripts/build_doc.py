@@ -50,8 +50,13 @@ def project_root():
 
 ROOT = project_root()
 WORK = os.path.join(ROOT, 'work')
-S = os.path.join(ROOT, 'scripts')
+SDIR = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(ROOT, 'out')
+
+
+def sib(name):
+    """同目录兄弟脚本的带引号路径（不依赖当前工作目录）。"""
+    return '"%s"' % os.path.join(SDIR, name)
 
 
 def run(cmd, quiet=False):
@@ -60,7 +65,7 @@ def run(cmd, quiet=False):
     env = dict(os.environ, PYTHONIOENCODING='utf-8',
                OPENBLAS_NUM_THREADS='1', OMP_NUM_THREADS='1')
     r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
-                       encoding='utf-8', errors='replace', env=env)
+                       encoding='utf-8', errors='replace', env=env, cwd=ROOT)
     if r.returncode != 0 and not quiet:
         print('!! FAIL:', cmd)
         print((r.stdout or '')[-800:])
@@ -98,7 +103,7 @@ def one(doc, meta):
     if not os.path.exists(zh):
         sys.exit(f'缺译文草稿 {zh}')
 
-    print(run(f'"{py}" convert.py {doc}').strip())
+    print(run(f'"{py}" {sib("convert.py")} {doc}').strip())
 
     fzh = os.path.join(WORK, doc + '_figzh.txt')
     if not os.path.exists(fzh):
@@ -106,7 +111,7 @@ def one(doc, meta):
 
     # 图渲染
     figdir = os.path.join(ROOT, 'figs', doc)
-    rep = run(f'"{py}" scripts/render_figs.py work/{doc}_layout.json '
+    rep = run(f'"{py}" {sib("render_figs.py")} work/{doc}_layout.json '
               f'work/{doc}_figtexts.json work/{doc}_figtrans.json figs/{doc}')
     bad = [l for l in rep.split('\n') if 'OVERFLOW' in l or 'MISSING' in l]
     tail = [l for l in rep.split('\n') if l.startswith('合计')]
@@ -118,11 +123,11 @@ def one(doc, meta):
 
     base, head = out_name(meta)
     docx = os.path.join(OUT, base + '.docx')
-    print(run(f'"{py}" scripts/build_docx.py work/{doc}_trans.json '
+    print(run(f'"{py}" {sib("build_docx.py")} work/{doc}_trans.json '
               f'work/{doc}_figtexts.json work/{doc}_figtrans.json figs/{doc} '
               f'"{docx}" "{head}"').strip()[-120:])
 
-    aud = run(f'"{py}" scripts/audit.py work/{doc}_layout.json '
+    aud = run(f'"{py}" {sib("audit.py")} work/{doc}_layout.json '
               f'work/{doc}_trans.json "{docx}" figs/{doc}')
     keep = [l for l in aud.split('\n')
             if ('✓' in l or '✗' in l or '块序列' in l or '结论' in l

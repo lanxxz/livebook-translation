@@ -143,7 +143,8 @@ $PY run.py check 13
 很多项目的 `build` 已经把「渲染图 → 出 docx → audit」串好，单独重跑其中一步容易留下旧 PNG。
 
 **轻量补丁式项目**常用 `work/chN_tr.py`，以 `PS` / `LS` **按文字块、列表块的出现顺序**
-给译文，`apply_tr.py` 用断言把顺序映射到块下标。这是 10–15 章项目最省心的写法：
+给译文，再用一个 `apply_tr.py` 把顺序断言映射到块下标（**该项目自有脚本，未随技能附带**；
+新项目等价做法是 `convert.py` 的 `@@B n` 块号 + `check_cov.py` 闸门）。这是 10–15 章项目最省心的写法：
 
 ```python
 PS = ["第 4.1 节标题", "第一段…", "第二段…"]   # 只含 p/h2/h3/caption/note/callout
@@ -163,6 +164,7 @@ LS = [["列表项 1", "列表项 2"], …]               # 只含 list/numlist
 ## 六步流程
 
 前置：项目根目录放 `book.json`（模板见 assets/book.json.example），至少填 `pdf` 与 `root`。
+**命令一律在项目根目录下执行**（脚本靠向上查找 `book.json` / `docs.json` 定位 `work/`、`figs/`、`out/`）。
 依赖：`pip install -r requirements.txt`（核心为 pymupdf / python-docx / docxcompose / Pillow；
 栅格流程另需 numpy / scipy / easyocr），装完跑 `$PY $S/check_env.py` 自检。
 
@@ -662,7 +664,7 @@ $PY $S/build_front_pages.py out/00_前置页.docx --meta=work/front_meta.json
 ```
 
 连续的 list/numlist 在 layout 里可能是多块，译文合并成一块即可（校验会折叠）。
-完整字段定义见 `assets/trans.schema.json`（**只覆盖五步流程的 JSON 格式**；
+完整字段定义见 `assets/trans.schema.json`（**只覆盖六步流程的 JSON 格式**；
 骨架流水线用 `_zh.txt` 文本格式，见「骨架文本流水线」一节）。
 
 ## 翻译约定
@@ -768,7 +770,7 @@ $PY $S/build_front_pages.py out/00_前置页.docx --meta=work/front_meta.json
 6. 有没有"自己加戏"加出来的东西（图内中英对照行、重复的代码清单）——
    原书没有的元素默认不加
 
-**交付说明必须诚实列出的三类"做不到"**
+**交付说明必须诚实列出的四类"做不到"**
 
 1. 图内文字若被画进**栅格像素**（matplotlib 标题）→ 无法无损中文化，列出具体页码
 2. **`KEEP` 的图内文字**（窄条 / 迷你框 / 太矮，见上文）→ 列出页码与块数，
