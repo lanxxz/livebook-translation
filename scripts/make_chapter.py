@@ -14,7 +14,8 @@ import os, sys, json, subprocess, glob
 from bookconf import cfg, work, figs, out
 ROOT = cfg('root')
 BASE = ROOT + r'\gss'
-PY = r'C:\Users\Administrator\.workbuddy\binaries\python\envs\default\Scripts\python.exe'
+# 用「当前解释器」而非某个 Agent 的内置 Python；需要指定时可设 BOOK_PYTHON
+PY = os.environ.get('BOOK_PYTHON') or sys.executable
 WORK = os.path.join(BASE, 'work')
 OUT = os.path.join(BASE, 'out')
 

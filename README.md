@@ -3,7 +3,9 @@
 > 把**带插图的英文技术书（PDF）**整本翻译成中文 Word / PDF：图内文字就地中文化、
 > 代码还原成可复制块、表格还原成真表格、逐块校验与原书对齐。
 
-这是一个 [WorkBuddy](https://www.workbuddy.cn/) **Skill**，不是独立的命令行程序。
+这是一份 **Agent 无关的 Skill 操作规范**：deepseek harness、Claude Code、Codex、
+WorkBuddy 等能读写文件并执行 Python 的 Agent 都可直接使用；它不是独立的命令行程序，
+也不依赖任何特定厂商的 API 或插件。
 `SKILL.md` 是给 Agent 的完整操作手册（约 1600 行），本文件是给人看的**导航与快速上手**。
 
 ---
