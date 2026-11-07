@@ -16,12 +16,14 @@ import json, sys, os, re
 import pymupdf
 from PIL import Image, ImageDraw, ImageFont
 
-from bookconf import cfg
+from bookconf import cfg, font_file
 PDF = cfg('pdf')
-FONT_CN = cfg('font_cn') if hasattr(cfg, 'font_cn') else r'C:\Windows\Fonts\simkai.ttf'
-FONT_CN_B = r'C:\Windows\Fonts\simhei.ttf'
-FONT_EN = r'C:\Windows\Fonts\arial.ttf'
-FONT_EN_B = r'C:\Windows\Fonts\arialbd.ttf'
+# 字体文件路径：book.json 的 font_cn / font_cn_bold / font_en / font_en_bold
+# 字段优先；未配置时 bookconf.font_file 自动探测 Win/Linux/macOS 常见路径。
+FONT_CN = font_file('font_cn')
+FONT_CN_B = font_file('font_cn_bold')
+FONT_EN = font_file('font_en')
+FONT_EN_B = font_file('font_en_bold')
 DPI = 300
 ZOOM = DPI / 72.0
 INK = (34, 34, 34)

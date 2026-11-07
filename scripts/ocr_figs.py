@@ -22,6 +22,10 @@ import os
 import re
 import sys
 
+# W13：必须在 import numpy 之前固化，防止 OpenBLAS 多线程内存错误
+os.environ.setdefault('OPENBLAS_NUM_THREADS', '1')
+os.environ.setdefault('OMP_NUM_THREADS', '1')
+
 import numpy as np
 import pymupdf
 

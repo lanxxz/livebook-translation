@@ -55,7 +55,10 @@ OUT = os.path.join(ROOT, 'out')
 
 
 def run(cmd, quiet=False):
-    env = dict(os.environ, PYTHONIOENCODING='utf-8')
+    # W13：BLAS 限单线程。否则 OpenBLAS 内存错误会让渲染子进程静默退出，
+    # figs/<doc>/ 为空而 docx 照常生成，整章插图消失且 audit 看不出异常。
+    env = dict(os.environ, PYTHONIOENCODING='utf-8',
+               OPENBLAS_NUM_THREADS='1', OMP_NUM_THREADS='1')
     r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
                        encoding='utf-8', errors='replace', env=env)
     if r.returncode != 0 and not quiet:

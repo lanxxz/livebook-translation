@@ -6,7 +6,8 @@
 这是一份 **Agent 无关的 Skill 操作规范**：deepseek harness、Claude Code、Codex、
 WorkBuddy 等能读写文件并执行 Python 的 Agent 都可直接使用；它不是独立的命令行程序，
 也不依赖任何特定厂商的 API 或插件。
-`SKILL.md` 是给 Agent 的完整操作手册（约 1600 行），本文件是给人看的**导航与快速上手**。
+`SKILL.md` 是给 Agent 的完整操作手册（路由 + 流程骨架 + 闸门；实战细节在
+`references/workflows.md`），本文件是给人看的**导航与快速上手**。
 
 ---
 
@@ -45,9 +46,8 @@ Python 3.10+（实测 3.13），Windows / macOS / Linux 均可；脚本默认中
 其它平台要改 `render_figs.py` / `build_docx.py` 里的 `FONT_CN` 常量。
 
 ```bash
-pip install pymupdf python-docx docxcompose Pillow numpy scipy
-# 可选：栅格图 OCR 与中文按词断行
-pip install easyocr jieba
+pip install -r requirements.txt   # 或手动：pymupdf python-docx docxcompose Pillow numpy scipy easyocr jieba
+python scripts/check_env.py       # 环境自检：库 / LibreOffice / 中文字体，全 PASS 再开工
 ```
 
 转 PDF 需要 **LibreOffice**（`soffice --headless`）。合订 PDF 书签用 `pymupdf` 写入。
@@ -160,9 +160,10 @@ $PY $S/qa_translation.py --root . --out out/译文自查报告.md   # 内容级�
 livebook-translation/
 ├── SKILL.md                  # Agent 操作手册（必读）：核心认知 / 五条流程 / 交付前必查
 ├── README.md                 # 本文件
-├── scripts/                  # 40 个可复用脚本（见下）
+├── scripts/                  # 43 个可复用脚本（见下）
 ├── references/
-│   ├── pitfalls.md           # 踩坑清单 A–X 组（约 1900 行，动手前先扫）
+│   ├── pitfalls.md           # 踩坑清单 A–X 组（约 2300 行，动手前先扫）
+│   ├── workflows.md          # 流程细节（SKILL.md 瘦身移出的扩展阅读）
 │   └── layout-heuristics.md  # 版式判据：字体分类 / 图区聚类 / 段落合并 / 各书实测参数
 └── assets/
     ├── book.json.example     # 项目配置模板
@@ -177,10 +178,10 @@ livebook-translation/
 | 待译骨架 | `mk_skeleton.py` `pairs.py` `export_pairs.py` `make_chapter.py` |
 | 图内文字 | `render_figs.py`（文字层） · `ocr_figs.py` `fig_raster.py`（栅格） · `gen_figzh_map.py`（批量映射） |
 | 译文转换 | `convert.py` `cov.py` `realign_zh.py` |
-| 生成 | `build_doc.py` `build_docx.py` `build_front.py` `build_front_pages.py` `convert_pdf.py` `convert.py` |
+| 生成 | `build_doc.py` `build_docx.py` `build_front.py` `build_front_pages.py` `convert_pdf.py` |
 | 合订 | `merge_book.py` `build_book_pdf.py` `add_pdf_outline.py` `chapter_pages.py` |
 | 校验 | `check_cov.py` `check_zh.py` `audit.py` `audit_book.py` `check_blocks.py` `check_merged_images.py` `check_page_coverage.py` `find_blank.py` `layout_check.py` `verify_docx.py` `qa_translation.py` |
-| 辅助 | `bookconf.py` `preview_html.py` `build_front.py` |
+| 辅助 | `bookconf.py` `preview_html.py` `build_glossary.py` `compare_pages.py` |
 
 ---
 
@@ -207,7 +208,8 @@ livebook-translation/
 
 | 想找什么 | 去哪 |
 |---|---|
-| 完整操作流程、五条流程详解、交付前 22 条检查 | `SKILL.md` |
+| 完整操作流程、五条流程详解、交付前 24 条检查 | `SKILL.md` |
+| 各流程的实战细节（W/X/V 组、呈现层、前置页、进度管理、交付范围） | `references/workflows.md` |
 | 某个具体 bug 的症状与修法 | `references/pitfalls.md`（A–X 组，按书分类；目录在 `SKILL.md`「细节参考」） |
 | 换一本新书怎么调字体表 / 页眉阈值 / 章首页判据 | `references/layout-heuristics.md` |
 | 译文 JSON 长什么样 | `assets/trans.schema.json` |
@@ -246,7 +248,8 @@ livebook-translation/
 - 原书索引页码在中文版失效，改为「英文术语｜中文」对照索引；封面/版权/目录按中文版重建。
 - 原书笔误、断词、前后不一致按原样保留；中文版是学习用途的非官方译本。
 
-完整交付说明模板见 `SKILL.md`「交付说明模板：7 类已知限制」。
+完整交付说明模板见 `references/workflows.md`「同版式复用与整书合订」末尾的
+「交付说明模板：7 类已知限制」。
 
 ---
 

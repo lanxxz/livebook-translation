@@ -35,8 +35,13 @@ CJK = re.compile(r'[\u3000-\u303f\u4e00-\u9fff\uff00-\uffef]')
 
 
 def parse_zh(path):
-    """解析 @@B 块。返回 {idx: [lines]}"""
+    """解析 @@B 块。返回 ({idx: [lines]}, 重复块号列表)。
+
+    重复块号（同一 @@B n 出现多次）只保留最后一次——这是译文错位的常见源头，
+    必须上报而不是静默覆盖（见 pitfalls S1）。
+    """
     out = {}
+    dups = []
     cur = None
     buf = []
     text = open(path, encoding='utf-8-sig').read()
@@ -44,6 +49,8 @@ def parse_zh(path):
         m = re.match(r'^@@B\s+(\d+)\s*$', raw.strip().lstrip('\ufeff'))
         if m:
             if cur is not None:
+                if cur in out:
+                    dups.append(cur)
                 out[cur] = buf
             cur = int(m.group(1))
             buf = []
@@ -52,6 +59,8 @@ def parse_zh(path):
             continue
         buf.append(raw)
     if cur is not None:
+        if cur in out:
+            dups.append(cur)
         out[cur] = buf
     # 去掉首尾空行
     for k in out:
@@ -60,7 +69,7 @@ def parse_zh(path):
             lines.pop(0)
         while lines and not lines[-1].strip():
             lines.pop()
-    return out
+    return out, dups
 
 
 def parse_fig_zh(path):
@@ -114,7 +123,10 @@ def main():
     doc = sys.argv[1]
     lay = json.load(open(os.path.join(WORK, doc + '_layout.json'), encoding='utf-8'))['pages']
     zh_p = os.path.join(WORK, doc + '_zh.txt')
-    zmap = parse_zh(zh_p)
+    zmap, dups = parse_zh(zh_p)
+    if dups:
+        print(f'!! {doc}: 块号重复 {sorted(set(dups))}（同号只保留最后一次出现，'
+              f'其余被静默丢弃——通常是译文错位的信号，见 pitfalls S1）')
 
     blocks = []
     idx = 0
@@ -196,6 +208,11 @@ def main():
                                'caption': cap or b.get('caption', '')})
             idx += 1
 
+    extra = sorted(k for k in zmap if k >= idx)
+    if extra:
+        print(f'!! {doc}: {len(extra)} 个多余块头被丢弃: {extra[:12]}')
+        print('   译文块数比版面多，多半是中途漏写/多写块头导致后续块号整体错位；'
+              '请对照 _skel.txt 逐块核对，并跑 check_zh.py 复核（见 pitfalls S1）')
     json.dump(blocks, open(os.path.join(WORK, doc + '_trans.json'), 'w', encoding='utf-8'),
               ensure_ascii=False, indent=1)
     if missing:

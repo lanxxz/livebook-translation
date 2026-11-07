@@ -24,6 +24,10 @@ import os
 import re
 from collections import Counter
 
+# W13：必须在 import numpy 之前固化，防止 OpenBLAS 多线程内存错误导致擦图进程静默退出
+os.environ.setdefault('OPENBLAS_NUM_THREADS', '1')
+os.environ.setdefault('OMP_NUM_THREADS', '1')
+
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
@@ -49,12 +53,18 @@ FPATH = None
 def _font_path():
     global FPATH
     if FPATH is None:
-        for p in CN_FONT_CANDIDATES:
-            if os.path.exists(p):
-                FPATH = p
-                break
-        if FPATH is None:
-            raise SystemExit('未找到中文字体，请改 CN_FONT_CANDIDATES')
+        if os.path.exists('book.json'):
+            # 项目内运行：book.json 的 font_cn 配置优先（配错会报错，不静默回退）
+            from bookconf import font_file
+            FPATH = font_file('font_cn')
+        else:
+            for p in CN_FONT_CANDIDATES:
+                if os.path.exists(p):
+                    FPATH = p
+                    break
+            if FPATH is None:
+                raise SystemExit('未找到中文字体，请改 CN_FONT_CANDIDATES '
+                                 '或在 book.json 配置 "font_cn"')
     return FPATH
 
 

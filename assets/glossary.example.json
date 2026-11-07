@@ -1,0 +1,7 @@
+{
+  "_note": "术语表模板：key = 英文术语（匹配时不区分大小写），zh = 中文译名（必填），note = 可选备注。开工即建、边译边补；交付前用 scripts/build_glossary.py 扫全部 trans.json 生成「首次出现」列与附录 terms 块。",
+  "stream processing": {"zh": "流处理"},
+  "watermark": {"zh": "水位线", "note": "本书语境不是「水印」"},
+  "backpressure": {"zh": "反压"},
+  "exactly-once": {"zh": "精确一次（exactly-once）", "note": "首次出现给中英对照，之后只用中文"}
+}

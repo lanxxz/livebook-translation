@@ -15,11 +15,19 @@ book.json 示例：
   "en_head": "Segoe UI",
   "body_pt": 10.5,
   "margin_cm": 2.4,
-  "text_w_cm": 16.2
+  "text_w_cm": 16.2,
+  "font_cn": "",
+  "font_cn_bold": "",
+  "font_en": "",
+  "font_en_bold": ""
 }
+
+font_* 为图内渲染用的字体**文件路径**（如 "C:/Windows/Fonts/msyh.ttc"）；
+留空 = 按 font_file() 候选表自动探测（Windows / Linux / macOS 常见路径）。
 """
 import json
 import os
+import sys
 
 _DEF = {
     'pdf': '',
@@ -36,6 +44,11 @@ _DEF = {
     'dpi_cap': 230,        # 有效 DPI 上限
     'zoom': 4.1667,        # PDF pt → px（300 DPI）
     'max_h_cm': 17.5,      # 单图最大显示高度
+    # 图内渲染字体文件路径；空串 = 按 _FONT_CANDIDATES 自动探测
+    'font_cn': '',
+    'font_cn_bold': '',
+    'font_en': '',
+    'font_en_bold': '',
 }
 
 _cache = None
@@ -49,9 +62,10 @@ def _load():
     for name in ('book.json', os.path.join(os.getcwd(), 'book.json')):
         if os.path.exists(name):
             try:
-                c.update(json.load(open(name, encoding='utf-8')))
-            except Exception:
-                pass
+                # utf-8-sig：兼容 Windows 记事本保存的带 BOM 文件
+                c.update(json.load(open(name, encoding='utf-8-sig')))
+            except Exception as e:
+                print(f'!! book.json 读取失败，按默认值继续: {e}', file=sys.stderr)
             break
     m = {
         'pdf': 'BOOK_PDF', 'root': 'BOOK_ROOT', 'book_title': 'BOOK_TITLE',
@@ -69,6 +83,53 @@ def _load():
 
 def cfg(key):
     return _load()[key]
+
+
+_FONT_CANDIDATES = {
+    'font_cn': (
+        r'C:\Windows\Fonts\simkai.ttf',
+        r'C:\Windows\Fonts\msyh.ttc',
+        r'C:\Windows\Fonts\simsun.ttc',
+        '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+        '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
+        '/System/Library/Fonts/PingFang.ttc',
+    ),
+    'font_cn_bold': (
+        r'C:\Windows\Fonts\simhei.ttf',
+        r'C:\Windows\Fonts\msyhbd.ttc',
+        '/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc',
+        '/System/Library/Fonts/PingFang.ttc',
+    ),
+    'font_en': (
+        r'C:\Windows\Fonts\arial.ttf',
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+        '/System/Library/Fonts/Helvetica.ttc',
+    ),
+    'font_en_bold': (
+        r'C:\Windows\Fonts\arialbd.ttf',
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+        '/System/Library/Fonts/Helvetica.ttc',
+    ),
+}
+
+
+def font_file(key):
+    """字体文件路径。book.json 里对应 key 非空则优先，否则按候选表探测。
+
+    可用 key：font_cn / font_cn_bold / font_en / font_en_bold。
+    配置了但路径不存在时报错退出（不静默回退，避免渲染用错字体）。
+    """
+    p = str(_load().get(key) or '').strip()
+    if p:
+        if not os.path.exists(p):
+            raise SystemExit(f'book.json 配置的字体路径 {key}={p} 不存在')
+        return p
+    for cand in _FONT_CANDIDATES.get(key, ()):
+        if os.path.exists(cand):
+            return cand
+    raise SystemExit(
+        f'未找到 {key} 字体文件。请在 book.json 配置 "{key}" 字段，'
+        f'例如 "font_cn": "C:/Windows/Fonts/msyh.ttc"')
 
 
 def work(*parts):

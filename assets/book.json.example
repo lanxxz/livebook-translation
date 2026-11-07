@@ -12,5 +12,10 @@
   "text_w_cm": 16.2,
   "dpi_cap": 230,
   "zoom": 4.1667,
-  "max_h_cm": 17.5
+  "max_h_cm": 17.5,
+  "_note_fonts": "下面四项是图内渲染用的字体文件路径；留空 = 自动探测系统常见字体（Win/Linux/macOS），跨平台或自定义字体请显式填写",
+  "font_cn": "",
+  "font_cn_bold": "",
+  "font_en": "",
+  "font_en_bold": ""
 }
