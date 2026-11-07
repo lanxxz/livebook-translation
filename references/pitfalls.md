@@ -1868,3 +1868,263 @@ for item in plan:
 ⑦ 版权性质（AI 辅助翻译、非官方授权译本）。
 术语表**开工就建**，收尾时从术语表 Markdown 自动解析生成中英索引（本次 64 条），
 不要到最后一章才临时凑。
+
+---
+
+## X. 混合型书 + 并行交付 + 内容级质检（233 页 Manning 2025 实战）
+
+《Data Analysis with LLMs》233 页 / 10 章 / 14 份分册 / 43 图 / 157 图内文字块 /
+225 代码块。这一组是**前面各组都没覆盖的新场景**：同一本书里矢量图和栅格截图共存、
+9 章由并行子代理同时翻译、以及「所有工程闸门都绿之后还要单独查译文内容」。
+
+### X1. 第三种形态：混合型书（矢量图 + 栅格截图共存）
+
+技能开头说「文字层书 / 栅格书混用必翻车」，但实测存在**同一本书两种都有**：
+流程图/示意图的标签是 `ArialMT` 矢量 span（可取坐标），而 ChatGPT / Colab /
+Cohere / Hugging Face 的界面截图是嵌入式 PNG（字在像素里）。
+
+十秒判定不要只跑一页，**按页统计 `get_image_info()` 与 `get_drawings()`**：
+
+```python
+# 有图的页：图区 get_text(clip=bbox) 有字 → 文字层；空 → 栅格
+# 本书 74 张可视图里约 20 页是界面截图，其余是矢量流程图
+```
+
+正确分流：**矢量图走 `render_figs.py` 重绘，栅格截图整图保留 + 中文图注**，
+在交付说明里列出保留英文界面的页码与原因。不要为了「图上零英文」对栅格截图做
+OCR 擦除——界面文字密集、相邻框重叠，收益远小于返工（见 T 组）。
+
+### X2. 「文字层丢空格」多半是探查脚本自己的锅
+
+初判时看到 `careertoexploitingtheamazingcapabilities...`、`importopenai` 这种
+粘连文本，差点判定为「PDF 文字层损坏、不能译」。根因是探查脚本写了
+`[s for s in line['spans'] if s['text'].strip()]`，**把纯空格 span 过滤掉了**。
+
+判据：先算全书空格率（正常英文约 0.15）。正常就说明文字层完好，
+是自己的 span 拼接逻辑丢了空格。写解析器时 `join_spans` 不要过滤空 span。
+
+### X3. 章首页下半页有正文：`chapter_open` 会吞掉整页
+
+`main()` 里若 `is_chapter_open(page)` 为真就只输出一个 `chapter_open` 块，
+在「章首页只有标题+本章内容+导言」的书里没问题；但本书 p20 还有
+`1.1` 标题、导言后的正文段落和四行诗，全被吞掉。
+
+做法：给 `parse_chapter_open` 额外返回 `_rest_y`（第一个 heading 的 y − 3），
+`main()` 里 `blocks = [co] + page_blocks(page, pno, skip_y0=rest_y)`；
+`page_blocks` 收行时跳过 `bb[1] < skip_y0`，并在 `skip_y0 > 0` 时把
+`graphic_regions` 置空（章首页的装饰章号是文字不是图元，聚类会造假图块）。
+导言常有多段，让 `convert.py` 的 `kv()` 把 `INTRO` 收成列表再 `'\n'.join`，
+`build_docx.py` 的 chapter_open 分支按 `\n` 拆成独立段落。
+
+### X4. 代码清单 / 便签被聚成图：整块回收，旁注剔除
+
+Manning 清单由「`Listing X.Y` 标题 + `CourierStd` 代码行 + `CombiNumeralsLtd`
+圈码旁注」构成，矢量框聚类会把整块吸成一个 figure，代码就不可复制了。
+
+图形区后处理加三条回收规则（顺序在 `ok_grid` 判定之前）：
+
+```python
+has_listing = any(LIST_RE.match(ln['text'].strip()) for ln in f['lines'])
+code_lines  = [ln for ln in f['lines'] if ln['kind'] == 'code']
+has_note    = re.match(r'^(TIP|WARNING|NOTE|DEFINITION)\b', _all_txt)
+has_ann     = any(ann_font in ff for ln in f['lines'] for ff in ln['fonts'])
+if has_note or has_ann or has_listing or len(code_lines) >= 2:
+    # 旁注行剔除（否则一份清单被切成多个孤立代码块），其余回收为正文
+    reclaimed.extend([ln for ln in f['lines'] if not is_pure_ann(ln)])
+    continue
+# 宽幅多行正文被误吸（含圈码的 13.4pt 正文行尤易发生）
+if w > 240 and len(body_lines) >= 2 and body_chars > 120:
+    reclaimed.extend(f['lines']); continue
+```
+
+同时把 `Listing X.Y` 标题行判为 `body`（普通段落），中文版写
+`清单 3.1　……`（编号后全角空格）。空底色条 / 矮装饰框（无文字且 h<80）丢弃。
+
+### X5. 侧置图注被裁进图区：`caption-erased` 只擦不写
+
+图注整组裁剪（W6）依赖「行首匹配 `Figure|Table X.Y`」。本书侧置图注与图上文字
+混排时被合成一行，`text` 变成 `Multimodal prompt con- Figure 6.1 taining an image...`，
+`CAP_RE.match` 失败，整段英文图注留在图里，与 Word 正文的中文图注重复。
+
+兜底放在 `render_figs.py` 的块循环里，**在 KEEP 判定之前**：
+
+```python
+if len(b['en']) > 55 and re.search(r'\b(Figure|Table)\s+\d+\.\d+', b['en']):
+    bg, box = sample_pad(img, bbox_px, pad=10)   # 采底色
+    dr.rectangle(box, fill=bg)                   # 只擦，不写字
+    report.append({'status': 'KEEP', 'reason': 'caption-erased'}); continue
+```
+
+中文图注已由 Word 正文 `CAP:` 呈现，图里留白比留一段英文干净。
+另外：骨架里 `CAP:` 为空的 figure 块，要从原书该页的
+`FranklinGothicFS-Demi` 8pt 行恢复完整英文图注再译，别自己编。
+
+### X6. 清理 PDF 残留时，一次性正则会吞掉块头
+
+Manning 电子版每本带随机防伪追踪码（形如 `XK 470 3686`、`TL 445 6808`），
+不是正文。用 `re.sub(r'\s*[A-Z]{2}\s+\d{3}\s+\d{4}\s*', ' ', t)` 清理时，
+首尾的 `\s*` **会跨行**，把下一行的 `@@B 123 code` 拼到上一块末尾：
+
+```
+@@B 122 p @@B 123 code     ← 块头不再独占一行，check_cov 报「缺 123」
+```
+
+症状具有欺骗性：块数少 1、类型错 N 处、空块 1 处，且**从某处开始整体错位一格**。
+
+正确做法是结构化同步清理，**四处同时改**（`fix_noise.py` / `drop_orphan_caption.py`）：
+
+1. 记下每份文档里「整块是噪声」的**旧块号**；
+2. 修复所有被拼到行内的 `@@B`（`re.sub(r'[ \t]+(@@B\s+\d+)', r'\n\n\1', t)`）；
+3. 从 `book_layout.json` 删整块、其余段落只去串不删块 → 重跑
+   `slice_layout.py` → `clean_front.py`（前置页清洗会被 slice 覆盖，必须重跑）
+   → `mk_skeleton.py` → `gen_figzh.py`；
+4. 对译文删对应块并**按出现顺序重编号 0..N-1**；
+5. 双闸门 + 重建该分册 + 重跑合订（页数可能变，目录要两轮校准）。
+
+同一套流程也适用于「原书图注断词残留的孤立英文尾巴」
+（本书 `lized tool, generating a query result.`，中文图注已完整覆盖其含义）。
+
+### X7. NULL 字节藏在 JSON 的 `\u0000` 转义里
+
+`build_docx.py` 报 `ValueError: All strings must be XML compatible`，
+只有一章失败。直接扫 `_zh.txt` 没有控制字符；`json.dumps(obj)` 也扫不到——
+因为 `\x00` 在 JSON 文件里是**字面 6 字符** `\u0000`，`dumps` 又把它转义回去。
+
+必须递归遍历解析后的字符串对象，且覆盖 C0、C1、代理项、FFFE/FFFF：
+
+```python
+ILL = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\u007f-\u009f\ud800-\udfff\ufffe\uffff]')
+def clean(o):
+    if isinstance(o, str): return ILL.sub('', o)
+    if isinstance(o, list): return [clean(x) for x in o]
+    if isinstance(o, dict): return {k: clean(v) for k, v in o.items()}
+    return o
+# 对 work/*.json 全部无条件重写，不要用 dumps 做存在性判断
+```
+
+### X8. 并行子代理逐章翻译：prompt 六要素 + 分段追加
+
+9 章由 9 个子代理并行完成，全部一次通过双闸门。关键是 **prompt 自包含**：
+
+1. 项目根绝对路径 + 本章骨架路径 + 块数；
+2. 必读三件：`TRANSLATION_GUIDE.md`、`work/<doc>_skel.txt`、已完成的样板
+   `work/ch01_zh.txt`（让代理照格式，不要靠描述猜）；
+3. 格式规范摘要（`code` 留空、`figure` 只写 `CAP:`、清单标题全角空格、
+   `INTRO` 多行、`■` 逐行）；
+4. **块号纪律**：只信骨架、不合并 figure 与紧随的 p 块、不新增块；
+5. 保留英文的类别（模型输出/提示词字面量/SQL/参考文献/产品名）；
+6. 自检命令（`check_cov.py <doc>` + `check_zh.py <doc>`）与「不许写 `_figzh.txt`」
+   （图内译文由统一映射表生成，避免代理各写一套）。
+
+长文件（150+ 块）必须允许分段追加：先 `Write` 写前 40~50 块，之后用
+`open(p, 'a', encoding='utf-8').write(...)` 追加，**禁止第二次 Write 覆盖全文**。
+收尾统一由主流程跑双闸门 + 漏译扫描复核，代理的自检只当第一道过滤。
+
+### X9. 图内译文映射表通用化：KEEP 写英文原文
+
+W11 的做法在项目里常写成每章一个 `gen_figzh_chNN.py`。本次用**一个通用脚本**
+（技能 `scripts/gen_figzh_map.py`）从 `book_figtexts.json` 导出全书唯一 EN 短语，
+「精确映射 + KEEP 模式 + 默认写英文原文」，一次生成全部 14 份 `_figzh.txt`
+（100 条中文化 / 57 条 KEEP）。
+
+两个易错点：
+
+- `render_figs.py` 判 KEEP 的条件是 `cn.strip() == b['en'].strip() and vis > 0.012`，
+  所以 **KEEP 要写英文原文**，不是字面 `SAME`（`SAME` 只被 `fig_raster.py` 认）。
+  写纯空白会被判 `MISSING`。
+- 连字 `ﬁ` 等要用 `unicodedata.normalize('NFKC', en)` 做映射键，否则命中不了。
+- 建表时按类别分层：界面按钮 / 数据表字段 / 示例查询 / 工具名 / 极窄标签 KEEP，
+  流程标签与叙述注释中文化；把 OK/KEEP 比例写进交付说明。
+
+### X10. docxcompose 合并后页眉页脚全丢
+
+`build_final_book.py` 以「无页眉页脚的前置页」为 master，
+`Composer.append()` 之后**所有节都套用 master 的空页眉**：
+`layout_check.py` 报「页眉样式数 1」，合订 PDF 页脚一个数字都没有，
+而分册 PDF 的页眉页码都正常。技能「呈现层」讲了顺序，但没讲这个症状。
+
+修法在 `merge()` 内，顺序只能是「分节 → append → 逐节写」：
+
+```python
+set_section_chrome(comp.doc.sections[0], labels[0])
+for f, lab in zip(files[1:], labels[1:]):
+    sec = comp.doc.add_section(WD_SECTION.NEW_PAGE)
+    sec.header.is_linked_to_previous = False
+    sec.footer.is_linked_to_previous = False
+    comp.append(Document(f))
+    set_section_chrome(comp.doc.sections[-1], lab)   # append 之后才写
+for sec in comp.doc.sections:                        # 清 pgNumType，页码连续
+    for el in sec._sectPr.findall(qn('w:pgNumType')): sec._sectPr.remove(el)
+```
+
+`set_section_chrome` 重写页眉文字 + 下边框，并重建页脚 `w:fldSimple instr="PAGE"`。
+重建后 `layout_check.py` 页眉样式数从 1 变 9；封面页码在 PDF 层用
+redact 擦掉（不加数字）。
+
+### X11. 两级书签要接进重建链，否则一重建就退化
+
+从各分册 `_trans.json` 的 `h2`/`h3` 中文标题，在该分册于合订本中的页区间内
+按「去空格后前 14 字」定位，可生成 15 条章级 + 185 条小节级书签。
+`pymupdf.set_toc()` 后检查**页码回跳 0、越界 0**。
+
+关键纪律：**把这一步接进 `finalize.py`**。`build_final_book.py` 每次重建只写
+章节级书签，若二级书签是手工跑的，下一次重建就悄悄退回 15 条。
+
+### X12. 下游一致性：改任一分册都要一条命令刷新
+
+改译文 / 删块 / 改封面后，手工逐步重跑容易留下旧 PDF 与旧书签。
+`finalize.py` 把下游串成一条链：
+
+```
+14 份分册 docx → 逐份转 PDF → 删旧合订 PDF → build_final_book.py
+→ 擦封面页码 → add_pdf_outline.py → 目录页码 5 条抽查
+```
+
+只排除 `_前置页.docx`、`_术语索引.docx`、合订本自身，其余 `out/*.docx` 全部重转。
+`build_final_book.py` 的目录两轮校准依赖各分册 PDF 的实际页数，
+**分册 PDF 不刷新，目录页码就是错的**。
+
+### X13. 工程全绿 ≠ 译文没问题：内容级自查要单独做一层
+
+用户问「翻译有没有问题」时，再把双闸门跑一遍没有意义。本次新增
+`scripts/qa_translation.py`，逐块对齐 `*_layout.json` 与 `*_trans.json`，做 8 类
+量化扫描：长度比、数字、URL、圈码、编号格式、术语变体、相邻重复、图注/清单编号；
+再对机翻高发的**否定与比较结构**做定向扫描；最后每章抽 1 段人工逐句细读。
+
+实测结果很反直觉：**量化命中几乎全是误报**，必须逐条写清原因才可信：
+
+| 命中 | 真实原因 |
+|---|---|
+| 长度比异常 2 块 | 评审人名表（只译连接词）、中文更凝练 |
+| 数字未原样出现 3 块 | `1,000`→「一千多」、`680,000`→「68 万」、`365 million`→「3.65 亿」 |
+| URL 未匹配 24 块 | 正则吞了句末 `.`/`;`，以及 PDF 断字被正确修复 |
+| 否定结构 8 块 | 5 块是规范保留英文的模型输出；双重否定被正确转成肯定 |
+| 比较结构 47 块 | 多为 `as well as` / `as long as` 被正则误判 |
+| 专有名词小写变体 | `import openai`、`sqlite3`、`serpapi.com` 等合法字面量 |
+
+**96 处「整块不含中文」也要分类**（模型输出/提示词 64、SQL/代码/数据字段 23、
+产品名标题 5、参考文献 4），而不是当成漏译。本次 10 段抽样细读 0 处误译，
+最后只修了 3 处一致性与措辞项。把「为什么这些不是问题」写进
+`译文自查报告.md`，比只报一句「检查通过」有说服力得多。
+
+### X14. 术语「语境变体」要写进规范，别靠全书强行统一
+
+`token` 在本书出现 204 次、「词元」14 次，看似不一致，实际是：
+ch03 是 API 参数（`max_tokens`）、ch09 是计费公式，保留英文是**有意的语境选择**；
+ch04/ch07/ch10 的一般叙述用「词元」。
+
+规范里要写死口径，否则每次自查都会把它当问题：
+
+> 术语定义/一般叙述写「词元（token）」并后续用「词元」；API 参数名、计费公式、
+> 模型 ID、代码与命令行中的字面量一律保留 `token`。
+
+强行替换 200 处会破坏参数名、公式与可读性。同样，「数据集」38 次 vs
+「数据集合」1 次才是真变体，改 1 处即可。
+
+### X15. 交付前必查清单补两条（在 V/W 组之外）
+
+- **内容级自查**：`qa_translation.py` + 每章抽样细读 + `译文自查报告.md`；
+  量化命中逐条判读，不允许只报「通过」。
+- **下游一致性**：`finalize.py` 跑完后，分册 PDF 时间戳、合订本、
+  两级书签数、目录页码抽查四者必须同时是最新的。
+
