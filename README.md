@@ -78,8 +78,12 @@ python scripts/check_env.py       # 环境自检：库 / LibreOffice / 中文字
 ]
 ```
 
-建议同时建 `work/ figs/ out/ out/pdf/ parts/ review/ tmp/`，并把本技能 `scripts/` 复制到项目
-`scripts/`（同版式复用时按新书字体改 `parse_layout.py` 的字体表与章首页判据）。
+**EPUB 源不需要手写 `docs.json`** —— `epub_parse.py` 会按章节 HTML 自动生成，
+`from`/`to` 就是章节序号。`book.json` 里的 `pdf` 字段仍要有（填 EPUB 路径即可，
+`bookconf` 只用它做存在性检查）。
+
+建议同时建 `work/ figs/ figs_zh/ out/ tools/`，并把本技能 `scripts/` 复制到项目
+`tools/`（同版式复用时按新书字体改 `parse_layout.py` 的字体表与章首页判据）。
 
 ### 3. 十秒判定：图内文字在哪一层
 
@@ -102,12 +106,67 @@ page.get_image_info()      # 图区 get_text 为空、只有一坨大 PNG → �
 
 | 书的形态 | 走哪条 | 详见 `SKILL.md` |
 |---|---|---|
+| **手上是 EPUB（.epub）** | **EPUB 源流程（最省事）** | 「EPUB 源」+ pitfalls Z 组 |
 | 图多章少（Grokking 类，300+ 页） | 六步流程 | 「六步流程」 |
 | 400+ 页、代码密集 | 六步 + 长书分片流程 | 「长书分片流程」 |
 | **12 份以上文档、想逐份交付 / 并行 / 可续做** | **骨架文本流水线**（最常用） | 「骨架文本流水线」 |
 | 80+ 张栅格截图 | 骨架流水线 + 栅格图内文字流程 | 「栅格图内文字流程」 |
 | 500 页以上、分散图元、上百代码清单 | 骨架流水线 + 版面窗口裁图 + SDK 管线 | 「超长全书管线」 |
 | 矢量流程图 + 界面截图共存 | 骨架流水线 + 混合型分流 | 「混合型书与规模化交付（X 组）」 |
+
+> **有 EPUB 就别用 PDF。** EPUB 的 XHTML 把块边界写进标签里，
+> PDF 流程里最贵的两件事（版面聚类、图区归属）直接消失；代码缩进原样保留、
+> 图直接取自 `<img>`、表格直接读 `<tr>`。把 EPUB 转 PDF 再解析，等于亲手拆掉结构标注。
+
+---
+
+## 图分三类，不是两类
+
+「示意图重绘 / 截图保留」这个二分法会漏掉一整类 —— **matplotlib 统计图**。
+它们的标题、轴名、图例是独立文字块，位置就是最终坐标，**和示意图一样可以原地中文化**。
+把它们当截图保留，中文版里就会有一堆英文图表。
+
+| 类型 | 判据 | 处理 |
+|---|---|---|
+| 矢量示意图 | 白/浅底、方框+箭头、文字块 10–40 | 逐块擦写 |
+| **统计图** | 有坐标轴/网格线/图例，无 IDE/浏览器 chrome | 只改标题/轴名/图例，**刻度数字不动** |
+| 界面截图 | 有标签栏/URL 栏/工具栏/按钮，或深色主题 | 整图保留 + 中文图注 |
+
+判据要落到像素（`dark>0.45` → 截图；文字块 `>60` → 多为截图），
+再叠一张人工修正表；**最后必须看 contact sheet 复核**（24 张/格、标 key）。
+实测一本 75 图的书，第一版误判 12 张统计图为截图，改正后图内中文化从 26 张升到 34 张。
+
+---
+
+## EPUB 源速查（第六种流程）
+
+六个脚本串一条线，与骨架流水线共用图内中文化与前置页：
+
+```
+epub_parse.py  →  epub_skel.py  →  check_cov_slots.py  →  apply_zh.py
+                                                   ↓
+              merge_book_epub.py  ←  build_docx4.py  ←
+```
+
+```bash
+PY=python; S=<本技能>/scripts        # 所有命令在项目根执行
+
+$PY $S/epub_parse.py book.epub        # XHTML → 块序列 + docs.json + 每章 dump
+$PY $S/epub_skel.py --all             # 生成骨架（点号 uid + 槽位）
+#   → 写 work/<doc>_zh.txt
+$PY $S/check_cov_slots.py --all       # 闸门：缺 0 / 多余 0 / 槽位合法
+$PY $S/apply_zh.py --all              # 回填 trans.json
+$PY $S/build_docx4.py <doc> out.docx "第 N 章　标题"
+$PY $S/merge_book_epub.py             # 合订：拼 PDF + 重写页脚 + 两级书签
+```
+
+**唯一需要改习惯的地方**：译文不是 `@@B <块号>`，而是 `### <uid> [<类型>]`
+后面跟槽位名（`text` / `caption` / `speaker` / `cell[R][C]` …）。
+完整格式样例、脚本分工表、三道闸门的判据见
+`references/workflows.md`「EPUB 源流程细节」8.0。
+
+一句话提醒：**槽位名写错不会报错**，只会把内容塞进错位置
+（把整段提示词写进 `speaker`，闸门照样全绿），所以交付前必查「标签长度 > 40」。
 
 ---
 
@@ -160,9 +219,9 @@ $PY $S/qa_translation.py --root . --out out/译文自查报告.md   # 内容级�
 livebook-translation/
 ├── SKILL.md                  # Agent 操作手册（必读）：核心认知 / 五条流程 / 交付前必查
 ├── README.md                 # 本文件
-├── scripts/                  # 44 个可复用脚本（见下）
+├── scripts/                  # 60 个可复用脚本（见下）
 ├── references/
-│   ├── pitfalls.md           # 踩坑清单 A–X 组（约 2300 行，动手前先扫）
+│   ├── pitfalls.md           # 踩坑清单 A–Z 组（约 2830 行，动手前先扫）
 │   ├── workflows.md          # 流程细节（SKILL.md 瘦身移出的扩展阅读）
 │   └── layout-heuristics.md  # 版式判据：字体分类 / 图区聚类 / 段落合并 / 各书实测参数
 └── assets/
@@ -182,6 +241,7 @@ livebook-translation/
 | 合订 | `merge_book.py` `build_book_pdf.py` `add_pdf_outline.py` `chapter_pages.py` |
 | 校验 | `check_cov.py` `check_zh.py` `audit.py` `audit_book.py` `check_blocks.py` `check_merged_images.py` `check_page_coverage.py` `find_blank.py` `layout_check.py` `verify_docx.py` `qa_translation.py` |
 | 辅助 | `bookconf.py` `preview_html.py` `build_glossary.py` `compare_pages.py` `run_raster.py` |
+| **EPUB 源** | `epub_parse.py` `epub_skel.py` `common.py` `tree.py` `apply_zh.py` `check_cov_slots.py` `ocr_all.py` `fig_lines.py` `fig_kind.py` `dump_fig.py` `draw_figs.py` `draw_charts.py` `build_docx4.py` `build_all.py` `build_front_epub.py` `merge_book_epub.py` |
 
 ---
 
@@ -238,12 +298,17 @@ livebook-translation/
 | 商业出版书 | 544 页 / 195 图 / 245 清单 | 版面窗口裁图 + SDK 管线（U 组） |
 | Manning 2026 | 450 页 / 25 分册 / 406 页合订 | 同版式复用与整书合订（W 组） |
 | Manning 2025 | 233 页 / 14 分册 / 43 图 | 混合型书 + 并行交付 + 内容级 QA（X 组） |
+| **EPUB 源 Manning MEAP** | **145k 词 / 10 章 / 75 图 / 402 页合订** | **EPUB 流程、锚点槽位、统计图三类分流（Z 组）** |
 
 ---
 
 ## 已知取舍（主动选择，不是遗漏）
 
-- 栅格界面截图里的英文界面文字无法无损中文化，保留英文原图 + 中文图注，并在交付说明列页码。
+- 栅格界面截图（IDE / 终端 / 网页 / 报告页）里的英文界面文字无法无损中文化，
+  保留英文原图 + 中文图注，并在交付说明列文件名。
+- **统计图不属于这一类**：matplotlib 的标题、轴名、图例可以原位中文化（见 Z8）。
+- 少数统计图（双轴图例互压、竖排轴名压刻度、表格状排版）试做后效果差于英文原图，
+  主动退回保留原图，并在交付说明逐条列出。
 - 图内极窄标签、类名、函数名、示例查询、数据表字段按 `KEEP` 保留英文。
 - 原书索引页码在中文版失效，改为「英文术语｜中文」对照索引；封面/版权/目录按中文版重建。
 - 原书笔误、断词、前后不一致按原样保留；中文版是学习用途的非官方译本。
@@ -255,12 +320,12 @@ livebook-translation/
 
 ## 版本与贡献
 
-本目录是一个 git 仓库。每次沉淀一本新书的经验，按 `A–X` 组追加到 `references/pitfalls.md`、
+本目录是一个 git 仓库。每次沉淀一本新书的经验，按 `A–Z` 组追加到 `references/pitfalls.md`、
 在 `SKILL.md` 增补对应小节与新脚本，然后提交：
 
 ```bash
 git add SKILL.md README.md references/ scripts/
-git commit -m "新增 XXX 经验（Y 组）：NNN 页 XX 书实战沉淀"
+git commit -m "新增 XXX 经验（Z 组）：NNN 页 XX 书实战沉淀"
 ```
 
 新脚本请保持：可独立运行、有 docstring 与 `--help`、路径通过 `--root` 或项目根 `book.json` 解析、

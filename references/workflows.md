@@ -923,3 +923,308 @@ $PY $S/find_blank.py out/pdf/全书.pdf   # 必须「无空白页」
 合并顺序铁律：**分节 → append → 设页眉**。顺序反了要么页眉全错，要么多出一堆空白页
 （pitfalls J1/J2）。
 
+
+## EPUB 源流程细节（Z 组配套，145k 词 Manning MEAP 实测）
+
+145,740 词 / 10 章 / 75 图 / 2,873 块，产出 11 份分册 + 402 页合订本。
+本节是 SKILL.md「EPUB 源」一节的扩写，动手前配合 pitfalls Z1–Z15 读。
+
+### 8.0 完整命令链与槽位格式
+
+```bash
+PY=python; S=<本技能>/scripts        # 所有命令在项目根执行
+
+# 1. XHTML → 块序列（递归容器、h1→章名、h5→图注、多 table 逐个产出）
+$PY $S/epub_parse.py book.epub        # → work/book_layout.json + docs.json + <doc>_dump.txt
+
+# 2. 生成骨架（点号 uid + 槽位）
+$PY $S/epub_skel.py --all             # → work/<doc>_skel.txt / _slots.json
+
+# 3. 写 work/<doc>_zh.txt（### <uid> [<type>] + 槽位行）
+$PY $S/check_cov_slots.py --all       # 闸门：缺 0 / 多余 0 / 槽位合法
+
+# 4. 回填 → trans.json
+$PY $S/apply_zh.py --all
+
+# 5. 图内中文化（三段流水线）
+$PY $S/ocr_all.py                     # OCR 全部图（按图缓存）
+$PY $S/fig_lines.py                   # 行内合并碎片（别跨行）
+$PY $S/fig_kind.py --init --sheet     # 出草稿表与联系表，人工定三类
+$PY $S/draw_figs.py                   # 示意图（读 work/fig_zh.json）
+$PY $S/draw_charts.py                 # 统计图（读 work/chart_spec.json）
+
+# 6. 出文档 + 合订
+$PY $S/build_all.py                   # 每章 docx → PDF
+$PY $S/build_front_epub.py            # 封面 + 目录
+$PY $S/merge_book_epub.py             # 拼 PDF + redaction 重写页脚 + 两级书签
+```
+
+`_zh.txt` 的格式（**与骨架流水线的 `@@B` 块号格式不同**）：
+
+```
+### 12 [para]
+text 错误会像背景噪音一样在 AI 项目里来回流窜。
+
+### 43 [figure]
+caption 图 1.1　氛围工程的循环……
+
+### 63 [dialog:prompt]
+speaker 提示词
+
+### 63.0 [para]
+text 生成一个 Python 函数……
+
+### 63.1 [code]
+caption Listing 5.1 预提交钩子示例
+note:#A 把路径换成你本地的路径。
+
+### 56 [table]
+caption 表 9.1　模型之间的成本变化
+cell[0][0] 任务类型
+cell[0][1] Sonnet
+```
+
+槽位名只有这十个：`text` / `caption` / `speaker` / `title` / `label` / `intro` /
+`toc[N]` / `item[N]` / `cell[R][C]` / `note:#X`。
+
+**为什么用槽位而不是整块字符串**：一个 dialog 块的 `speaker` 与它内部的 `para`
+是两个独立译文单元。写成嵌套 uid（`14` 与 `14.16`）能让「块头写错」和
+「槽位写错」分别报错。代价是**槽位名写错会静默丢内容** —— 因为槽位名本身合法，
+闸门查不出来（Z5 的实例）。
+
+脚本分工：
+
+| 脚本 | 职责 |
+|---|---|
+| `epub_parse.py` | 递归解析 XHTML → `book_layout.json` / `docs.json` / 每章 dump |
+| `epub_skel.py` | 生成骨架与槽位表（`_skel.txt` / `_slots.json`） |
+| `common.py` / `tree.py` | 项目根定位、块树扁平化、槽位枚举与回填 |
+| `check_cov_slots.py` | 槽位版闸门（**与块号版 `check_cov.py` 并存**，别混用） |
+| `apply_zh.py` | `_zh.txt` → `_trans.json` |
+| `draw_figs.py` / `draw_charts.py` | 示意图 / 统计图两类渲染器 |
+| `build_docx4.py` | EPUB 块类型全套渲染（dialog/callout/sidebar/equation/quote） |
+| `merge_book_epub.py` | 合订（拼 PDF + redaction 重写页脚 + 两级书签） |
+
+### 8.1 为什么 EPUB 比 PDF 省事
+
+PDF 流程的成本集中在两处：**块边界靠聚类猜**、**图区归属靠 bbox 判**。
+EPUB 里这两件事都是标签给的：
+
+| 要判断的事 | PDF 做法 | EPUB 做法 |
+|---|---|---|
+| 两段该不该合并 | 行距 + 首行缩进 + 句末标点 | 两个 `<div class="readable-text">` 就是两块 |
+| 这行文字属于图还是正文 | 中心点落在图元 bbox 内 | 它在 `<div class="figure-container">` 里就是图注 |
+| 代码缩进多少空格 | `(行首x - 版心左边)/等宽字宽` | `<pre>` 里原样 |
+| 这张图在哪 | `get_image_info()` 扫页 | `<img src="../Images/03__image012.png">` |
+| 表格几行几列 | 判竖线横线交点 | `<tr><td>` 直接数 |
+
+代价转移到三处：**嵌套容器的递归**（Z2）、**槽位名的纪律**（Z5）、
+**OCR 拆词后的语义重建**（Z6）。图内文字仍在像素里，T/Y 组判据全部适用。
+
+### 8.2 解析：递归 walk + 容器分类
+
+顶层结构的实际分布（ch03 为例，255 块）：
+
+```
+div.readable-text                            × 87   普通容器（内有一个 p 或一个 h2）
+div.readable-text.intended-text               ×134   同上，只是排版标记不同，无需区分
+div.callout-container.sidebar-container
+    .prompt-response-sidebar.prompt-sidebar    × 15   提示词对话
+div.callout-container.sidebar-container
+    .prompt-response-sidebar.response-sidebar  ×  2   模型回复
+div.readable-text.sub-sub-section-heading     ×  5   四级标题容器
+div.browsable-container.figure-container      × 14   插图
+ul                                            ×  1   顶层列表
+```
+
+`walk(container, ctx)` 的骨架：
+
+```python
+def walk(container, ctx, depth=0):
+    blocks = []
+    for el in container.iterchildren():
+        c = cls(el)
+        if 'figure-container' in c:
+            ctx['fig'] += 1
+            blocks.append({'type': 'figure',
+                           'key': '%s_f%02d' % (ctx['doc'], ctx['fig']),
+                           'img': img_src(el), 'caption': cap_of(el)})
+        elif 'listing-container' in c:
+            blocks.append({'type': 'code', 'caption': cap_of(el),
+                           'text': pre_text(el), 'notes': notes_of(el)})
+        elif 'browsable-table-container' in c:
+            for ti, tb in enumerate(el.cssselect('table')):
+                blocks.append({'type': 'table',
+                               'caption': cap_of(el) if ti == 0 else '',
+                               'grid': grid_of_table(tb)})
+        elif 'prompt-response-sidebar' in c:
+            kind = 'prompt' if 'prompt-sidebar' in c else 'response'
+            blocks.append({'type': 'dialog', 'kind': kind,
+                           'speaker': speaker_of(el), 'initials': initials_of(el),
+                           'parts': walk(el, ctx, depth + 1)})
+        elif 'admonition-block' in c:
+            blocks.append({'type': 'callout', 'label': cap_of(el).upper(),
+                           'parts': walk(el, ctx, depth + 1)})
+        elif 'sidebar-container' in c:
+            blocks.append({'type': 'sidebar', 'title': cap_of(el),
+                           'parts': walk(el, ctx, depth + 1)})
+        elif el.tag == 'h1':
+            continue                       # 章名已进 chapter_open（Z3）
+        elif el.tag in ('h2', 'h3', 'h4', 'h5'):
+            blocks.append({'type': 'heading', 'level': int(el.tag[1]),
+                           'text': inline(el)})
+        elif el.tag in ('ul', 'ol'):
+            blocks.append({'type': 'list' if el.tag == 'ul' else 'numlist',
+                           'items': [inline(li) for li in el.cssselect('li')]})
+        elif el.tag == 'div':
+            blocks.extend(walk(el, ctx, depth + 1))
+    return blocks
+```
+
+三个必须注意的点：
+
+1. **`browsable-table-container` 里可能有多个 `<table>`**。ch04 的 `p72`
+   并排放了两张（`Use Case` 与 `Aspect`），只取 `[0]` 会静默丢一张。
+2. **`h5` 是 caption 不是标题**。若统一处理，会产出 22 个无意义标题而图注反而丢了。
+3. **`h1` 直接跳过**。它的文本已经进了 `chapter_open`，再产出 heading 会导致章名出现两遍。
+
+### 8.3 验收：叶子文本包含检查
+
+块数会骗人。第一版丢了两张表和三段代码，但块数一次都没变。
+
+```python
+def tight(s):
+    return re.sub(r'\s+', '', re.sub(r'[*`]', '', s))
+
+out = tight(' '.join(flatten(blocks)))
+WHITE = {'这章涵盖', '所有笔记的代码都可以在'}     # 白名单：被渲染成固定标题的
+for el in doc.body.iter():
+    if el.tag in ('p', 'h2', 'h3', 'h4', 'li', 'td', 'th', 'pre', 'blockquote'):
+        t = tight(el.text_content())
+        if t and t not in out and t not in WHITE:
+            print('MISSED', el.tag, t[:80])
+```
+
+**不要用 token 频次比对**。代码块被拆成单词后，`if`/`return`/`2` 的差额定会淹没真缺失
+（实测 ch07 报 912 个"缺"、真正缺 0 个）。
+
+### 8.4 图：OCR → 行内合并 → 三类分流 → 渲染
+
+EPUB 的图不用裁（`z.read(src)` 就是整图），但图内文字仍是像素。四步：
+
+**① OCR**（`ocr_all.py`）：easyocr 逐图识别，结果按图缓存成 `<key>.ocr.json`。
+只保留 `conf >= 0.30` 且不是纯符号的块。
+
+**② 行内合并**（`fig_lines.py`）：OCR 会把一行切成多块（`Word-of-the-` / `day` / `-`）。
+合并判据：垂直重叠 > 70%、水平间隙 < 1.6 倍字高、字高相近（> 55% 彼此）。
+**只做行内**——跨行合并会把不同卡片连成一整块（实测 35 块并成 2 块，结构全丢）。
+
+**③ 分流**（`fig_kind.py`）：三类判据见 SKILL.md「图分三类」。
+自动判据之后必须叠人工修正表，并且**做 contact sheet 复核**：
+
+```python
+COLS, TW, PER = 6, 300, 24            # 每张 300px 宽、每版 24 张
+for si in range(0, len(keys), PER):
+    rows = (len(chunk) + COLS - 1) // COLS
+    sheet = Image.new('RGB', (COLS * TW, rows * CH), 'white')
+    for i, k in enumerate(chunk):
+        sheet.paste(thumb(k), ((i % COLS) * TW, (i // COLS) * CH + 20))
+        ImageDraw.Draw(sheet).text(((i % COLS) * TW + 4, (i // COLS) * CH + 4), k, fill='red')
+```
+
+75 张图 4 版就能一眼看完，比逐张点开快一个数量级。
+
+**④ 渲染**：示意图走 `draw_figs.py`（框内众数取底色、只保护长线、多行 `fit_multi`），
+统计图走 `draw_charts.py`。
+
+统计图的五条要点（都在实测中撞过）：
+
+1. **轴刻度一律跳过** —— `re.match(r'^[\s\-+.,%$€£¥\d\^eE×xX/()]+$', en)` 命中的块不处理。
+2. **竖排 Y 轴名一列一字**，`fs = min(bw*0.98, bhh/字数/1.06)` 再**封顶 14–15px**。
+   超了会压到刻度数字上（Z9）。
+3. **OCR 常整块漏检竖排轴名**（旋转 90° 的小字），`chart_spec.json` 要支持 `extra`：
+   手工给 `px_bbox` + 译文，走竖排分支。
+4. **横向标题可略超框宽**：`limit = max(bw+12, bw*1.6)`，
+   否则 `Medicine Type` 这类短标签会被 OCR 窄框拆成两行。
+5. **图例里的标识符保留英文**：`Haiku` / `Sonnet` / `hashMap` / `parallelStream` 是 API 名；
+   只换 `concurrent→并发版`、`optimized→优化版` 这类描述词。
+
+**效果不好就退回原图。** 实测 6 张试汉化后主动退回：双轴图例互相挤压、
+x 轴标签被拆行、竖排轴名压刻度、表格状排版错位、中文填进错误框。
+判据：**放大看过仍觉得比英文原图更难读，就退回**。退回后把人工表改回 `shot`、
+删掉 `figs_zh` 里的产物，并在交付说明列出文件名与原因 ——
+不要默默留一个半坏的中文图。
+
+**合订前还要过一次图分类核对**：`figs_zh/` 里实际存在的文件集合，
+必须与人工表里的 diagram/chart 集合逐张一致。实测这一步抓到过
+「表里标 diagram 但产物没生成」和「产物存在但表里还是 shot」两类错位。
+
+### 8.5 渲染器的四条硬规则（都是踩出来的）
+
+| 规则 | 违反后的症状 |
+|---|---|
+| **底色取「框内颜色众数」**，不取外扩窗口中位数 | 标题条上下是白纸 → 判成白底黑字 → 蓝色标题条被当墨迹擦成白块 |
+| **结构保护只保护长横线/长竖线**，不加"厚块" | 粗体大字被整片保下来 → 蓝条上的粗体白字擦不掉 |
+| **擦除后必须 `img.paste(Image.fromarray(arr))`** | 报告 `rendered=51, OVERFLOW=0` 全绿，输出 PNG 与原图**字节相同** |
+| **纵向扩张设硬上限**（≤0.3 倍行高） | 白字在深色条上会一路扩到白纸，整张图被吃掉（实测 114×18 → 516×163） |
+
+多行译文的字号：`fit_multi` 按显式 `\n` 分段，`fs = min(h_ref*0.98, per_h*0.94)`，
+每段独立求值再取最小。合并块一定要同时把 `h_pt` 设成**单行字高**而不是整块高，
+否则字号被压到 8px 看不清。
+
+### 8.6 合订：拼 PDF + redaction 重写页脚
+
+合订 docx 与合订 PDF 分别做，PDF 是最终交付物：
+
+```python
+out = pymupdf.open()
+for p in paths:                       # 封面 → 目录 → 前言 → 1..N 章
+    src = pymupdf.open(p); out.insert_pdf(src); src.close()
+
+for i, page in enumerate(out):
+    r = page.rect
+    foot = pymupdf.Rect(0, r.y1 - 72, r.x1, r.y1)
+    page.add_redact_annot(foot, fill=(1, 1, 1))    # ← 必须 redaction
+    page.apply_redactions()                        #    draw_rect 不删旧文字
+    if i < 2:
+        continue                                   # 封面与目录不编号
+    txt = str(i - 1)                               # 页脚号：正文从 1
+    w = pymupdf.get_text_length(txt, fontname='helv', fontsize=9.5)
+    page.insert_text(((r.x1 - w) / 2, r.y1 - 36), txt, fontsize=9.5,
+                     fontname='helv', color=(0.45, 0.45, 0.45))
+
+out.set_toc(entries)                  # [level(1|2), title, page(1-based)]
+out.save(tmp, deflate=True, garbage=3)
+os.replace(tmp, final)
+```
+
+验收：`get_text(clip=页脚区)` 逐页比对 `str(i-1)`，必须 0 错位。
+
+### 8.7 目录页码：基准只能选一个
+
+目录里写**页脚号**还是**全书页号**，两者差「前置页数」（封面 1 + 目录 1 = 2）。
+选页脚号：
+
+```python
+cur = 1                                # 正文首页的页脚号
+for d in docs:
+    print('%s …… %d' % (d['title'], cur))
+    cur += pymupdf.open(pdf_of(d)).page_count
+```
+
+封面必须严格 1 页 —— 溢出到 2 页会让后面全部偏 1 页（实测 403 → 402 页之差就来自这里）。
+
+### 8.8 交付前自审清单（本流程专属）
+
+| 检查 | 方法 | 本次结果 |
+|---|---|---|
+| 块数与类型 | `layout` vs `trans` 逐块比 | 11/11 一致 |
+| 叶子包含 | 见 8.3 | 只剩 1 条白名单 |
+| 标签污染 | `speaker`/`label`/`title` 长度 > 40 | 5 处（最长 266 字） |
+| 章名五处 | `docs.json`/文件名/页眉/目录/章首页 | 5 章不一致 |
+| 图分类 | contact sheet 目视 | 12 张统计图误判为截图 |
+| 图内叠加 | OCR 二次识别输出图 | 编号重复、拆词叠字 |
+| 译文长度比 | 段落 `汉字/原文字符` 分布 | 中位 25.0、p90 28.2 |
+| 页码/目录/书签/图片 | 见 8.6 | 0 错位 / 11:11 / 90 条 / 75 张 |
+
+前四条都是**工程闸门查不出**的，必须单独做。
