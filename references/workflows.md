@@ -1237,9 +1237,14 @@ for d in docs:
 > 成品是**一处统一多级目录**（章 / 小节 / 子小节三级）+ 每行可点击跳转，
 > 章节正文不再有任何独立导览。本节只讲怎么做，踩过的坑看 pitfalls AA 组。
 >
-> 下列 `rebuild_toc.py` / `merge_final.py` / `add_toc_links.py` /
-> `verify_links.py` / `check_toc_pages.py` 是**项目脚本，未随技能附带**；
-> 这里给出可直接照抄的算法骨架。新项目按自己的目录结构实现即可。
+> 这套流程**已随技能附带**（配置驱动、跨平台，别的机器可直接跑）：
+> `scripts/toc_common.py`（公共配置/解析/页码计算）、
+> `scripts/toc_build.py`（两遍构建 + 合订 docx/PDF）、
+> `scripts/toc_links.py`（挂链接 + fail-closed 校验）、
+> `scripts/toc_verify.py`（三方核对 + 模拟点击验收），
+> 配置模板 `assets/unified_toc.json.example`，用法见本节末尾「9. 配套脚本用法」。
+> 下面给出算法骨架，便于按自己项目的目录结构调参。
+> 技能原生 `scripts/build_front_pages.py` 已支持多级目录（4 元组 `level` 字段）。
 
 ### 1. 动笔前：三层盘点 + 方案确认
 
@@ -1387,11 +1392,12 @@ if KEEP_CHAPTER_TOC and blk.get('toc'):
 
 ```
 9 个分册 docx -> soffice 转分册 PDF
-             -> rebuild_toc.py      两遍构建前置页 + 页码
-             -> merge_final.py      合订 docx + 合订 PDF + 两级书签
-                                    (redaction 删子页脚 + 写连续页码)
-             -> add_toc_links.py    167 行 x 2 + 页眉返回目录
-             -> audit_book.py / check_toc_pages.py / verify_links.py / final_check.py
+             -> toc_build.py --step rebuild   两遍构建前置页 + 页码
+             -> toc_build.py --step merge     合订 docx + 合订 PDF + 两级书签
+                                             (redaction 删子页脚 + 写连续页码)
+             -> toc_links.py                 167 行 x 2 + 页眉返回目录
+             -> toc_verify.py                三方核对 + 逐个模拟点击
+             -> 项目自有 audit_book.py / final_check.py（内容级 / 排版层另跑）
 ```
 
 即使某次改动后**各章页数和书签数完全没变**，也必须整条重跑：
@@ -1415,3 +1421,55 @@ if KEEP_CHAPTER_TOC and blk.get('toc'):
 
 第 9、10 条专治「脚本全绿但用户说没改」：前者查脚本查不出的观感，
 后者避免用户拿旧副本或文档里的历史措辞当现状（AA11/AA14）。
+
+### 9. 配套脚本用法（配置驱动，别的机器直接跑）
+
+**四个脚本 + 一个配置模板**：
+
+| 文件 | 职责 |
+|---|---|
+| `scripts/toc_common.py` | 配置加载 / 项目根定位 / 跨平台 soffice 探测 / norm / 目录行解析 / 条目收集 / 页码计算 |
+| `scripts/toc_build.py` | `--step rebuild`（两遍构建前置页）/ `merge`（合订 docx+PDF+书签）/ `all`；`--check` 只复核书签 |
+| `scripts/toc_links.py` | 目录行双区域 `LINK_GOTO` + 页眉返回目录；挂链接前四方 fail-closed 校验 |
+| `scripts/toc_verify.py` | 三方页码核对 + 逐个模拟点击 + 章内导览残留 + 链接类型，任一不符退出码 1 |
+| `assets/unified_toc.json.example` | 配置模板，逐字段带 `_note` 说明 |
+
+**三步命令**（在项目根执行；`scripts/` 指技能目录，可换成绝对路径）：
+
+```bash
+cp <技能>/assets/unified_toc.json.example work/unified_toc.json
+# 按项目改 docs.json 命名模板、book_title、front_fixed_pages、toc_rows 等
+python <技能>/scripts/toc_build.py  --config work/unified_toc.json --step all
+python <技能>/scripts/toc_links.py  --config work/unified_toc.json
+python <技能>/scripts/toc_verify.py --config work/unified_toc.json
+```
+
+**最少输入**：`docs.json`（文档顺序）、`work/front_meta.json`（封面/版权文字 + `toc` 数组）、
+各分册 docx 与 PDF（命名要能被 `name_template` 对上）。`root` 留 `null` 时
+从配置文件所在目录向上找 `docs.json`/`book.json`，也可 `--root` 或 `BOOK_ROOT` 覆盖。
+
+**跨平台要点**：
+
+- 路径全部 `os.path.join`，无驱动器/用户名硬编码；配置里路径可相对 `root`。
+- LibreOffice 探测顺序：`SOFFICE` 环境变量 / 配置 `soffice` 字段 → `PATH` →
+  Windows / Linux / macOS 常见安装路径；找不到给出明确提示，不静默跳过。
+- 书名、页眉文字、章号正则、命名模板、页脚安全区、目录 y 带全部来自配置，
+  不假设中文书名或「第 N 章」写法（`bookmark_regex` 可改）。
+- 只依赖 `pymupdf` / `python-docx` / `docxcompose`（`requirements.txt` 已列），
+  不需要 `book.json`，也不需要技能里的其他脚本先跑过。
+- `toc_verify.py` 是 fail-closed：把 `toc_rows.y_min` 误设成 100 时，
+  `toc_links.py` 会打印「行数与 front_meta 不一致，中止」并退出 1，不产出坏文件（AA5）。
+
+**回归实测**（用 255 页 Manning MEAP 项目在隔离目录跑完整链，与项目专版产物逐项比对）：
+
+| 项 | 通用版 vs 项目专版 |
+|---|---|
+| 页数 | 255 / 255 ✓ |
+| 书签（168 条） | 逐条一致 ✓ |
+| 链接（345 个） | 落点与热区全一致 ✓ |
+| 逐页文本 | 255/255 页一致 ✓ |
+| 目录行（167 条） | 全一致 ✓ |
+| `toc_verify.py` | 0 问题（三方 167/167、模拟点击 334、残留 0 页） |
+
+回归时把分册 docx/PDF 复制到临时目录、配置 `root=null` 自动定位，
+因此**不碰原项目产物**；交付前用 `toc_verify.py` 对最终文件再跑一次即可。

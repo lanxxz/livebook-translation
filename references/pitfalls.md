@@ -2843,6 +2843,14 @@ for si in range(0, len(keys), 24):
 > 两次返工分别出在**需求分层没拆清**和**下游链没刷新**。
 > 格式仍为症状 → 原因 → 做法；可与 Z11（redaction）、Z12（文件占用）、
 > X11/X12（书签与下游一致性）、Y13（二级书签排序）、X13（内容级自查）对照看。
+>
+> **配套脚本已随技能附带**（配置驱动、跨平台）：`scripts/toc_common.py`、
+> `toc_build.py`、`toc_links.py`、`toc_verify.py` + `assets/unified_toc.json.example`；
+> 三步命令与调参见 `references/workflows.md`「9. 配套脚本用法」。
+> 本组正文里出现的 `rebuild_toc.py` / `merge_final.py` / `add_toc_links.py` /
+> `verify_links.py` / `check_toc_pages.py` 是当时的项目专版名，
+> 通用版分别对应 `toc_build.py(rebuild)` / `toc_build.py(merge)` /
+> `toc_links.py` / `toc_verify.py`（三方核对与模拟点击合并进同一脚本）。
 
 ### AA1. 「把本章小节目录合并到目录」要先拆成三层，别只做一层 ★★★
 
@@ -3009,7 +3017,7 @@ doc[pno - 1].insert_link({
 ```
 
 本次 167 行 × 2 = 334 个行链接 + 11 个页眉「返回目录」= 345，
-落点复核 167/167 正确。再配一个 `verify_links.py` 逐个**模拟点击**：
+落点复核 167/167 正确。再配一个 `toc_verify.py` 逐个**模拟点击**：
 矩形内必须有可见文字、目标页必须含对应章标题/小节编号、两区域落点一致。
 
 ### AA7. `pymupdf` 保存回原文件：临时文件 + `replace`，与「文件被占用」是两回事 ★
@@ -3089,10 +3097,10 @@ pg.apply_redactions()
 **做法**：把链固定成一条命令，不许挑着跑：
 
 ```
-分册 docx → soffice 转分册 PDF → rebuild_toc.py（两遍构建前置页）
-→ merge_final.py（合订 docx + 合订 PDF + 两级书签）
-→ add_toc_links.py（目录行 + 页眉返回目录）
-→ audit_book / check_toc_pages / verify_links / final_check
+分册 docx → soffice 转分册 PDF → toc_build.py --step rebuild（两遍构建前置页）
+→ toc_build.py --step merge（合订 docx + 合订 PDF + 两级书签）
+→ toc_links.py（目录行 + 页眉返回目录）
+→ toc_verify.py（三方核对 + 模拟点击）→ 项目自有的内容级 / 排版层 QA
 ```
 
 本次每段都重跑，最终合订 PDF 与 docx 中「本章内容」检索均为 0。

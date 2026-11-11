@@ -19,4 +19,7 @@ easyocr>=1.7.0
 jieba>=0.42.0
 
 # 外部依赖（非 pip 包）：
-#   LibreOffice —— convert_pdf.py 用 `soffice --headless` 做 docx→PDF
+#   LibreOffice —— convert_pdf.py 用 `soffice --headless` 做 docx→PDF；
+#   统一多级目录工具（toc_build.py 两遍构建前置页）同样需要。
+#   通过 SOFFICE 环境变量 / 配置 soffice 字段 / PATH / 常见安装路径自动探测，
+#   Windows、Linux、macOS 均可。

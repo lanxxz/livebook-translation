@@ -720,6 +720,21 @@ $PY $S/build_front_pages.py out/00_前置页.docx --meta=work/front_meta.json
 - **交付说明顶部写「当前状态 + 旧文件自检提示」**，历史问题标注「已被 #N 取代」，
   避免用户拿旧副本或文档里的历史措辞当现状（AA11）。
 
+**配套脚本已随技能附带**（配置驱动、跨平台，别的机器可直接跑）：
+
+```bash
+cp <技能>/assets/unified_toc.json.example work/unified_toc.json   # 按项目改命名模板等
+python <技能>/scripts/toc_build.py  --config work/unified_toc.json --step all
+python <技能>/scripts/toc_links.py  --config work/unified_toc.json
+python <技能>/scripts/toc_verify.py --config work/unified_toc.json
+```
+
+`toc_build.py` 做两遍构建 + 合订，`toc_links.py` 挂链接前做四方 fail-closed 校验，
+`toc_verify.py` 三方核对 + 逐个模拟点击。只需 `docs.json` / `front_meta.json` /
+各分册 docx+PDF 与 LibreOffice，不依赖 `book.json` 或本技能其他脚本。
+回归实测与项目专版产物逐项一致（255 页 / 168 书签 / 345 链接 / 255 页文本）。
+命令与调参细节见 `references/workflows.md`「9. 配套脚本用法」。
+
 ## 译文 JSON 结构
 
 ```json
@@ -1021,6 +1036,21 @@ $PY $S/build_front_pages.py out/00_前置页.docx --meta=work/front_meta.json
   的 h2/h3 标题在对应页区间定位，写「章 + 小节」书签并校验回跳/越界（X11）
 - `scripts/qa_translation.py` — **译文内容量化自查**（只读）：原文 vs 译文逐块对齐，
   10 类扫描 + 否定/比较定向扫描 + 无中文块分类，可 `--out` 出报告（X13）
+
+**统一多级目录工具（AA 组配套，配置驱动 / 跨平台）**
+
+- `scripts/toc_common.py` — 公共配置与解析：项目根定位、soffice 跨平台探测、
+  命名模板、分册书签同源收集、两遍页码计算、目录行解析（AA3/AA4/AA5）
+- `scripts/toc_build.py` — 两遍构建前置页 + 合订 docx/PDF：redaction 删子页脚、
+  连续页码、两级书签同源定位（AA8/AA10）；`--step rebuild|merge|all`、`--check`
+- `scripts/toc_links.py` — 目录行双区域 `LINK_GOTO` + 页眉返回目录；
+  挂前四方 fail-closed 校验，同文件保存走临时文件 + `replace`（AA6/AA7）
+- `scripts/toc_verify.py` — 三方页码核对 + 逐个模拟点击 + 章内导览残留 +
+  链接类型，任一不符退出码 1（AA14）
+- `scripts/build_front_pages.py` — 前置页排版；`toc` 支持 4 元组
+  `[编号, 标题, 页码, 层级]`，三元组仍按章级处理（多级目录视觉层）
+- `assets/unified_toc.json.example` — 统一目录配置模板，逐字段带说明
+
 - `assets/book.json.example` — 配置模板
 - `assets/trans.schema.json` — 译文 JSON 完整示例
 

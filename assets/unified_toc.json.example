@@ -1,0 +1,71 @@
+{
+  "_readme": [
+    "统一多级目录工具配置模板（pitfalls AA 组配套）。复制为 <项目>/work/unified_toc.json 后按项目改。",
+    "所有路径相对 root，也可写绝对路径；root 为空时从配置文件所在目录向上找 docs.json/book.json，",
+    "也可用 --root 或环境变量 BOOK_ROOT 覆盖。",
+    "最少必填：docs.json（文档顺序）、work/front_meta.json（封面/版权/目录文字 + toc 数组）、",
+    "各分册 docx/PDF（命名要能被 name_template 对上）。其余字段都有默认值。",
+    "命令链：",
+    "  python scripts/toc_build.py  --config work/unified_toc.json --step all",
+    "  python scripts/toc_links.py  --config work/unified_toc.json",
+    "  python scripts/toc_verify.py --config work/unified_toc.json",
+    "示例值取自 255 页 Manning MEAP 实战（9 章 / 167 条目录 / 345 链接）。"
+  ],
+
+  "root": null,
+  "book_title": "重构大语言模型",
+  "docs": "docs.json",
+  "front_meta": "work/front_meta.json",
+  "chapter_pages": "work/chapter_pages.json",
+  "out_dir": "out",
+  "pdf_dir": "out/pdf",
+
+  "front_name": "00_封面与版权",
+  "book_name": "重构大语言模型",
+  "header_text": "重构大语言模型",
+
+  "_layout_note": "front_fixed_pages = 目录之前的固定页数（封面 1 + 版权 1）；toc_start_page = 目录首页的全书页号。若你的前置页结构不同，改这两项。",
+  "front_fixed_pages": 2,
+  "toc_start_page": 3,
+  "toc_title": "目录",
+
+  "_template_note": "命名模板用 Python str.format，可用 {num}(int) {num_s}(字符串) {title} {id}。docs.json 里 kind=front/welcome 的文档作为 welcome 分册，kind=ch/chapter 的按 num 排序作为章。",
+  "welcome": {
+    "name_template": "00_{title}",
+    "label": "前言与导读",
+    "toc_title": "欢迎与简要目录"
+  },
+  "chapter": {
+    "name_template": "{num:02d}_第{num}章_{title}",
+    "label_template": "第 {num} 章　{title}",
+    "bookmark_regex": "^第(\\d+)章"
+  },
+
+  "_outline_note": "分册 PDF 书签级别 → 目录级别。LibreOffice 由 docx 标题样式生成 outline；若你的书有 4 级标题，按需补映射。num_regex 用于从小节标题里抽编号。",
+  "outline": {
+    "level_map": {"1": 1, "2": 2, "3": 2},
+    "num_regex": "^(\\d+(?:\\.\\d+)*)"
+  },
+
+  "_footer_note": "页脚页码 redaction 的安全区（AA8）：只在版心下沿以下、水平居中的纯数字块才删除。不同版心高度要实测调整。",
+  "footer": {"min_y": 786.0, "max_y": 830.0, "center_tol": 40.0},
+  "page_number": {"fontsize": 9, "from_bottom": 30, "color": [0.5, 0.5, 0.5]},
+
+  "_rows_note": "目录行识别的 y 带（AA5）：y_min 必须小于目录续页首行 y（本项目续页约 70，首页约 128）；太大会静默漏行。",
+  "toc_rows": {
+    "y_min": 55,
+    "y_max": 780,
+    "right_x_min": 480,
+    "title_x_max": 480,
+    "pair_tol": 8
+  },
+
+  "head_y_range": [60, 170],
+  "header_link": {"x0": 68.2, "x1": 98.2, "y_max": 60},
+  "fonts": {"cn_head": "微软雅黑", "en_head": "Arial"},
+  "residual_keywords": ["本章内容", "本章小节目录", "小节目录"],
+
+  "_soffice_note": "留空 = 自动探测（SOFFICE 环境变量 → PATH → Windows/Linux/macOS 常见路径）。显式路径可写 /usr/bin/soffice 或 C:/Program Files/LibreOffice/program/soffice.exe。",
+  "soffice": "",
+  "skip_docx_merge": false
+}

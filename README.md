@@ -219,13 +219,14 @@ $PY $S/qa_translation.py --root . --out out/译文自查报告.md   # 内容级�
 livebook-translation/
 ├── SKILL.md                  # Agent 操作手册（必读）：核心认知 / 五条流程 / 交付前必查
 ├── README.md                 # 本文件
-├── scripts/                  # 60 个可复用脚本（见下）
+├── scripts/                  # 64 个可复用脚本（见下）
 ├── references/
-│   ├── pitfalls.md           # 踩坑清单 A–Z 组（约 2830 行，动手前先扫）
+│   ├── pitfalls.md           # 踩坑清单 A–AA 组（动手前先扫）
 │   ├── workflows.md          # 流程细节（SKILL.md 瘦身移出的扩展阅读）
 │   └── layout-heuristics.md  # 版式判据：字体分类 / 图区聚类 / 段落合并 / 各书实测参数
 └── assets/
     ├── book.json.example     # 项目配置模板
+    ├── unified_toc.json.example  # 统一多级目录工具配置模板（AA 组）
     └── trans.schema.json     # 译文 JSON 的完整结构示例
 ```
 
@@ -239,6 +240,7 @@ livebook-translation/
 | 译文转换 | `convert.py` `cov.py` `realign_zh.py` |
 | 生成 | `build_doc.py` `build_docx.py` `build_front.py` `build_front_pages.py` `convert_pdf.py` |
 | 合订 | `merge_book.py` `build_book_pdf.py` `add_pdf_outline.py` `chapter_pages.py` |
+| **统一多级目录（AA 组）** | `toc_common.py`（公共） `toc_build.py`（两遍构建+合订） `toc_links.py`（链接+fail-closed） `toc_verify.py`（验收）；配置模板 `assets/unified_toc.json.example`，用法见 `SKILL.md`「统一多级目录与可点击导航」 |
 | 校验 | `check_cov.py` `check_zh.py` `audit.py` `audit_book.py` `check_blocks.py` `check_merged_images.py` `check_page_coverage.py` `find_blank.py` `layout_check.py` `verify_docx.py` `qa_translation.py` |
 | 辅助 | `bookconf.py` `preview_html.py` `build_glossary.py` `compare_pages.py` `run_raster.py` |
 | **EPUB 源** | `epub_parse.py` `epub_skel.py` `common.py` `tree.py` `apply_zh.py` `check_cov_slots.py` `ocr_all.py` `fig_lines.py` `fig_kind.py` `dump_fig.py` `draw_figs.py` `draw_charts.py` `build_docx4.py` `build_all.py` `build_front_epub.py` `merge_book_epub.py` |
@@ -277,6 +279,7 @@ livebook-translation/
 | 500 页以上 / 分散图元 | pitfalls **U 组** |
 | 合订、封面、目录两轮校准 | pitfalls **R / W / X 组** |
 | 统一多级目录、章内导览合并、可点击跳转 | `SKILL.md`「统一多级目录与可点击导航」 + pitfalls **AA 组** |
+| 统一目录工具怎么在别的机器跑（配置/命令/跨平台） | `references/workflows.md`「9. 配套脚本用法」 + `assets/unified_toc.json.example` |
 | 并行翻译、术语表、内容级 QA | pitfalls **X 组** |
 
 `pitfalls.md` 分组速记：**A–F** 图重书 · **G–L** 长书 · **M** 排版观感 · **N** 骨架流水线 ·

@@ -241,30 +241,52 @@ def copyright_page(doc, meta):
 
 
 def toc_page(doc, meta, pages=None):
-    """目录：章号 + 金色方块 + 章名 → 制表位 → 右对齐页码。"""
+    """目录：多级混排（章 / 小节 / 子小节）+ 右对齐页码。
+
+    toc 条目两种格式（向后兼容）：
+      [num, title, page]        → level 0（章级：章号 + 金色方块 + 章名）
+      [num, title, page, level] → level 1/2（小节/子小节：缩进，无方块）
+    小节行的 title 含编号（如「1.1 LLM 规模化面临的挑战」），num 仅为核对用。
+    """
     pages = pages or {}
     p = pf(doc.add_paragraph(), after=6, line=30, keep=True, page_break=True)
     set_run(p.add_run(meta.get('toc_title') or '目录'),
             size=24, bold=True, color=NAVY, cn=CN_HEAD, en=EN_HEAD, spacing=2)
     hr(doc, sz=8, before=2, after=12)
 
+    first = True
     for item in meta.get('toc') or []:
-        num, title, page = (list(item) + ['', '', ''])[:3]
+        it = list(item) + ['', '', '', 0]
+        num, title, page, level = it[0], it[1], it[2], int(it[3] or 0)
         # 页码留空 → 用 chapter_pages.json 的实际页
         if not page:
             key = ('ap%s' % num) if not str(num).isdigit() else ('ch%02d' % int(num))
             page = str(pages.get(key, ''))
         p = doc.add_paragraph()
-        pf(p, after=7, line=20)
-        p.paragraph_format.tab_stops.add_tab_stop(Cm(1.35), WD_TAB_ALIGNMENT.LEFT)
-        p.paragraph_format.tab_stops.add_tab_stop(Cm(TEXT_W_CM), WD_TAB_ALIGNMENT.RIGHT)
-        set_run(p.add_run(str(num)), size=11.5, italic=True, color=NAVY,
-                cn=CN_HEAD, en=EN_HEAD)
-        set_run(p.add_run('\u2002\u25AA  '), size=11, color=GOLD,
-                cn=CN_HEAD, en=EN_HEAD)
-        set_run(p.add_run(str(title)), size=11, color=DARK)
-        set_run(p.add_run('\t'), size=11)
-        set_run(p.add_run(str(page)), size=11, color=GREY, cn=CN_HEAD, en=EN_HEAD)
+        if level == 0:
+            pf(p, before=(0 if first else 6), after=4, line=19, keep=True)
+            p.paragraph_format.tab_stops.add_tab_stop(Cm(1.35), WD_TAB_ALIGNMENT.LEFT)
+            p.paragraph_format.tab_stops.add_tab_stop(Cm(TEXT_W_CM), WD_TAB_ALIGNMENT.RIGHT)
+            set_run(p.add_run(str(num)), size=11.5, italic=True, color=NAVY,
+                    cn=CN_HEAD, en=EN_HEAD)
+            set_run(p.add_run('\u2002\u25AA  '), size=11, color=GOLD,
+                    cn=CN_HEAD, en=EN_HEAD)
+            set_run(p.add_run(str(title)), size=11, color=DARK)
+            set_run(p.add_run('\t'), size=11)
+            set_run(p.add_run(str(page)), size=11, color=GREY, cn=CN_HEAD, en=EN_HEAD)
+            first = False
+        elif level == 1:
+            pf(p, before=0, after=1.5, line=14.5, left_cm=1.25)
+            p.paragraph_format.tab_stops.add_tab_stop(Cm(TEXT_W_CM), WD_TAB_ALIGNMENT.RIGHT)
+            set_run(p.add_run(str(title)), size=10, color=RGBColor(0x2A, 0x2A, 0x2A))
+            set_run(p.add_run('\t'), size=10)
+            set_run(p.add_run(str(page)), size=9.5, color=GREY, cn=CN_HEAD, en=EN_HEAD)
+        else:
+            pf(p, before=0, after=1, line=12.5, left_cm=2.3)
+            p.paragraph_format.tab_stops.add_tab_stop(Cm(TEXT_W_CM), WD_TAB_ALIGNMENT.RIGHT)
+            set_run(p.add_run(str(title)), size=9, color=RGBColor(0x44, 0x44, 0x44))
+            set_run(p.add_run('\t'), size=9)
+            set_run(p.add_run(str(page)), size=9, color=LIGHT, cn=CN_HEAD, en=EN_HEAD)
 
 
 # ---------------- 入口 ----------------
