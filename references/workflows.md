@@ -1228,3 +1228,190 @@ for d in docs:
 | 页码/目录/书签/图片 | 见 8.6 | 0 错位 / 11:11 / 90 条 / 75 张 |
 
 前四条都是**工程闸门查不出**的，必须单独做。
+
+---
+
+## 统一多级目录流程细节（AA 组配套，255 页 Manning MEAP 实战）
+
+> 对应 pitfalls **AA1–AA14**。场景：用户要「章内小节目录合并到目录」，
+> 成品是**一处统一多级目录**（章 / 小节 / 子小节三级）+ 每行可点击跳转，
+> 章节正文不再有任何独立导览。本节只讲怎么做，踩过的坑看 pitfalls AA 组。
+>
+> 下列 `rebuild_toc.py` / `merge_final.py` / `add_toc_links.py` /
+> `verify_links.py` / `check_toc_pages.py` 是**项目脚本，未随技能附带**；
+> 这里给出可直接照抄的算法骨架。新项目按自己的目录结构实现即可。
+
+### 1. 动笔前：三层盘点 + 方案确认
+
+「目录样的东西」常常有三层，**只改自己加的那一层必然被用户退回**：
+
+| 层 | 关键词 | 来源 | 默认处置 |
+|---|---|---|---|
+| 译者插页 | 本章小节目录 | 自己插的 | 删除，条目并入统一目录 |
+| 章内导览 | 本章内容 / In this chapter | 原书 | **要用户拍板**（删正文 or 保留） |
+| 简要目录 | 简要目录 / brief contents | 原书 welcome | 属原书正文，默认保留 |
+
+盘点要同时扫 **PDF 全文**和 **docx 完整 XML**（页眉、文本框、表格都在 XML 里，
+`Document.paragraphs` 看不到）。把命中位置列成编号清单给用户，
+不要先改再解释。删原书内容是破坏性操作，必须先确认。
+
+### 2. 条目收集：分册 PDF 书签是唯一真相来源
+
+```
+各分册 docx --(LibreOffice)--> 分册 PDF --get_toc()--> (级别, 标题, 局部页)
+                                    |
+                    +---------------+---------------+
+                    |                               |
+            统一目录条目/页码                合订 PDF 二级书签
+```
+
+LibreOffice 从 docx 的 `Heading 1/2/3` 样式生成 outline，带精确局部页，
+比「在合订 PDF 里搜标题文字」可靠得多（换行标题、重复词会漏定位）：
+
+```python
+entries = []
+for name in chapter_names:
+    with pymupdf.open(os.path.join(PDFDIR, name + '.pdf')) as sub:
+        for lvl, title, local_page in sub.get_toc():
+            if not title.strip():
+                continue
+            entries.append({'num': ..., 'title': title.strip(),
+                            'local_page': local_page,
+                            'level': 0 if lvl == 1 else lvl - 1})
+# 本次：10 章级 + 56 h2 + 101 h3 = 167 条
+```
+
+`front_meta.json` 的 `toc` 用四元组 `[编号, 标题, 页码, 层级]`，
+章级为 0、小节 1、子小节 2。旧的三元组格式读时补默认值即可向后兼容。
+合订书签定位复用同一份 outline：`final_page = 章起始页 + local_page - 1`。
+
+### 3. 两遍构建：拆掉「目录页数 P ↔ 全书页码」的循环
+
+关键性质：**P 只由条目数与排版决定**；页码右对齐，位数变化不影响换行。
+所以可以先用占位页码量出 P，再按 P 算真正页码。
+
+```
+第 1 遍
+  toc = [(num, title, '0', level) ...]          占位
+  生成前置页 docx -> soffice 转 PDF -> P = 前置页数 - 2
+  front = 2 + P   (封面 1 + 版权 1 + 目录 P)
+  welcome = 2
+  版面：front + welcome + sum(各分册页数) = 全书总页数
+  每条最终页 = front + welcome + 前面分册页数累计 + local_page - 1
+
+第 2 遍
+  把最终页码写回 toc，重建前置页 docx/PDF
+  断言：前置页数 == 2 + P 且 P 与第 1 遍相同；否则退出
+```
+
+```python
+def compute_pages(entries, chapter_starts, P):
+    front = 2 + P
+    base = front + 2                     # welcome 占 2 页
+    out = []
+    for e in entries:
+        out.append(base + chapter_starts[e['chapter']] - 1 + e['local_page'] - 1)
+    return out
+```
+
+输出必须打印「第 2 遍：页数收敛 ✓」，`front_meta.json` 与
+`chapter_pages.json` 一起落盘。**生成成功不等于收敛**。
+
+### 4. 多级目录排版（python-docx）
+
+| 层级 | 排版 | 字号 / 行距 |
+|---|---|---|
+| 章级 | 斜体章号（深蓝）+ 金色 ▪ + 章名，段前 6pt | 11pt / 19pt |
+| 小节 | 左缩进 1.25cm，无装饰符 | 10pt / 14.5pt |
+| 子小节 | 左缩进 2.3cm | 9pt / 12.5pt |
+
+- 页码用**右对齐制表位**（`Cm(TEXT_W)`），不要用空格补
+- 章级行的 `keep_with_next` 打开，避免章名与首个小节被分页拆开
+- 前置页整页走 docx → LibreOffice，**不要用 pymupdf CJK 字体直接画**：
+  `china-ss` 会把 `1.1` 拉成 `1 . 1`，金色 ▪ 还会丢字（AA9）
+
+### 5. 链接挂载：先四方校验，再逐行挂两个 GOTO
+
+目录行解析 = 左标题行 + 右页码行按 y 配对（阈值 8pt）。
+**y 带下限放到 55**：p3 有「目录」大标题首行 y≈128，
+但 p4 起的续页首行 y≈70，用 100 会静默吃掉每页顶部 2–3 行（AA5）。
+
+挂链接前四项必须全对，否则 `return 1`，不产出「看起来对」的文件：
+
+| 校验 | 判据 |
+|---|---|
+| 行数 | `len(rows) == len(front_meta.toc)` |
+| 标题 | `norm(row_text) == display_key(entry)` |
+| 印刷页码 | `printed_page == entry.page` |
+| 书签页 | `bookmark_page == entry.page` |
+
+```python
+def display_key(ent):
+    if ent['level'] == 0:
+        return norm(ent['num'] + ent['title'])   # 印刷成「N ▪ 章名」
+    return norm(ent['title'])                    # 小节标题自带编号，不能再拼 num
+
+for bb in (title_bbox, page_bbox):             # 标题区 + 页码区双区域
+    page.insert_link({'kind': pymupdf.LINK_GOTO,
+                      'from': pymupdf.Rect(bb[0]-2, bb[1]-2, bb[2]+2, bb[3]+2),
+                      'page': target - 1,
+                      'to': pymupdf.Point(bb[0], title_y or 0)})
+```
+
+再加各章页眉「返回目录」链接形成双向导航。
+保存到原文件要写临时文件再 `replace`（AA7）：
+
+```python
+if Path(dst).resolve() == src.resolve():
+    tmp = Path(str(dst) + '.tmp')
+    doc.save(tmp, garbage=4, deflate=True)
+    doc.close()
+    tmp.replace(dst)
+```
+
+### 6. 章内导览：渲染层开关，源数据不动
+
+```python
+# build_docx.py，chapter_open 分支
+KEEP_CHAPTER_TOC = os.environ.get('KEEP_CHAPTER_TOC', '0') == '1'
+...
+if KEEP_CHAPTER_TOC and blk.get('toc'):
+    # 「本章内容」标题 + List Bullet 要点（原逻辑）
+```
+
+`work/*_trans.json` 里的 `chapter_open.toc` 原样保留，
+所以 `audit_book.py` 的「原文块序列 vs 译文块序列」继续全绿，
+且 `KEEP_CHAPTER_TOC=1` 随时可重建对照版。改的是呈现，不是真相来源（AA2）。
+
+### 7. 下游链：一条命令跑完，不许挑着跑
+
+```
+9 个分册 docx -> soffice 转分册 PDF
+             -> rebuild_toc.py      两遍构建前置页 + 页码
+             -> merge_final.py      合订 docx + 合订 PDF + 两级书签
+                                    (redaction 删子页脚 + 写连续页码)
+             -> add_toc_links.py    167 行 x 2 + 页眉返回目录
+             -> audit_book.py / check_toc_pages.py / verify_links.py / final_check.py
+```
+
+即使某次改动后**各章页数和书签数完全没变**，也必须整条重跑：
+合订 docx、合订 PDF、链接注解是三份独立产物，
+只重跑其中一段会留下旧内容（本次删导览后合订 docx 仍有 9 个残留，AA10）。
+
+### 8. 验收清单（断言层 + 目视层）
+
+| # | 检查 | 判据 |
+|---|---|---|
+| 1 | 章内导览残留 | 全书检索「本章内容 / 本章小节目录 / 小节目录」命中 **0 页** |
+| 2 | 三方页码核对 | 书签 / `front_meta` / PDF 印刷页，逐条一致（167/167） |
+| 3 | 目录行数 | `front_meta` 条目数 == 解析行数 == 行链接数 / 2 |
+| 4 | 链接端到端 | 逐个模拟点击：矩形有可见文字、目标页含对应标题、双区域落点一致 |
+| 5 | 链接类型 | 全部 `LINK_GOTO`，无外链 |
+| 6 | 页码连续 | 1..N 逐页 `get_text(clip=页脚区)` 比对 |
+| 7 | 全书终检 | 空白页 / 页眉页脚 / 溢出 / 书签回跳越界 / 图数 / 表数 / 代码行数 |
+| 8 | 内容级四比对 | 代码逐字符 / 表格逐格 / 数字等价 / 图内「该译未译」 |
+| 9 | 目视 | 目录首页 + 续页 + 2~3 个章首页渲染 PNG：三级缩进、右对齐竖线、无空洞 |
+| 10 | 交付说明 | 顶部写「当前状态 + 旧文件自检提示」，历史问题标注「已被 #N 取代」 |
+
+第 9、10 条专治「脚本全绿但用户说没改」：前者查脚本查不出的观感，
+后者避免用户拿旧副本或文档里的历史措辞当现状（AA11/AA14）。
