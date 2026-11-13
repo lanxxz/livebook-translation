@@ -19,6 +19,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import sys
 import unicodedata
 from collections import Counter
@@ -116,26 +117,53 @@ def main():
             continue          # 该份暂无图内文字，静默跳过（部分章节推进时常见）
 
         handled += 1
-        lines, ok, kept = [], 0, 0
+        lines, ok, kept, reused = [], 0, 0, 0
+        # 已有 _figzh.txt 时先读回人工译文：本脚本的默认行为是「未命中即写英文原文」，
+        # 若无条件覆盖，会把此前已中文化的条目整片冲掉（实测踩过：1562 条里 858 条中文
+        # 被写成英文，双闸门依然全绿，因为 check_cov 只查键是否存在）。
+        old = {}
+        fp = os.path.join(work, doc + '_figzh.txt')
+        if os.path.exists(fp):
+            cur = None
+            for ln in open(fp, encoding='utf-8'):
+                ln = ln.rstrip('\n')
+                if ln.startswith('@@FIG '):
+                    cur = ln.split()[1]
+                elif ln.startswith('@@T '):
+                    tid = ln.split()[1]
+                elif ln.startswith('ZH ') and cur is not None:
+                    old[(cur, tid)] = ln[3:]
         for key in sorted(figs, key=lambda k: (figs[k].get('page', 0), k)):
             lines.append(f'@@FIG {key}')
             for b in figs[key].get('blocks') or []:
                 en = b['en']
                 cn = nmap.get(norm(en))
                 if cn is None:
-                    if len(en) > 60 or keep_re.search(norm(en)):
+                    prev = old.get((key, str(b['id'])))
+                    # 已有译文且不是「原样英文」，说明是人工译过的，优先保留
+                    if prev and prev.strip() and prev.strip() != en.strip():
+                        cn = prev
+                        reused += 1
+                        ok += 1
+                    elif len(en) > 60 or keep_re.search(norm(en)):
                         cn = en                    # KEEP
+                        kept += 1
                     else:
                         cn = en                    # 短未知短语也保留，避免误译专名
-                    kept += 1
+                        kept += 1
                 else:
                     ok += 1
                 lines.append(f"@@T {b['id']}")
                 lines.append(f'ZH {cn}')
             lines.append('')
-        open(os.path.join(work, doc + '_figzh.txt'), 'w',
-             encoding='utf-8').write('\n'.join(lines))
-        print(f'{doc:8s} 图 {len(figs):3d}  中文化 {ok:3d}  KEEP {kept:3d}')
+        # 写前备份：覆盖前把旧文件存到 work/_figzh_bak/<doc>_figzh.txt
+        if os.path.exists(fp):
+            bak = os.path.join(work, '_figzh_bak')
+            os.makedirs(bak, exist_ok=True)
+            shutil.copy2(fp, os.path.join(bak, doc + '_figzh.txt'))
+        open(fp, 'w', encoding='utf-8').write('\n'.join(lines))
+        print(f'{doc:8s} 图 {len(figs):3d}  中文化 {ok:3d}  KEEP {kept:3d}'
+              + (f'  复用旧译 {reused:3d}' if reused else ''))
         total_ok += ok
         total_keep += kept
     if not handled:

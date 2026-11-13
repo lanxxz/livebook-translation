@@ -173,9 +173,18 @@ def main():
         emit(f"- {x['doc']} B{x['i']} / {y['doc']} B{y['i']}: {x['zh'][:70]!r}")
     emit('')
     caps = [r for r in rows if r['type'] == 'figure' and r['zh'].strip()]
-    bad_cap = [r for r in caps if not re.match(r'^(图|表)\s*\d+\.\d+', r['zh'])]
-    emit(f'## E 图注 {len(caps)} 条，格式不符 {len(bad_cap)} 条，空图注 '
-         f"{sum(1 for r in caps if r['zh'].strip() in ('CAP:', ''))} 条")
+    # 编号图注要覆盖：图 3.1 / 图 C.1 / 表 8.1 / 表 E.3 / 清单 14.1（附录字母前缀很常见）。
+    # 无编号的「描述性图注」（代码清单标题图、被拆成上下两半的插图、数据表原图）是规范
+    # 允许的编译性处理，单列一档，不计入「格式不符」，否则 185 条图注会误报 89 条。
+    numbered = re.compile(r'^(图|表|清单|Listing)\s*[A-Z]?\d+[\.\-]\d+')
+    bad_cap = [r for r in caps if not numbered.match(r['zh'].strip())]
+    emit(f'## E 图注 {len(caps)} 条：编号图注 {len(caps) - len(bad_cap)} 条，'
+         f'无编号（描述性/清单标题，规范允许）{len(bad_cap)} 条，'
+         f"空图注 {sum(1 for r in caps if r['zh'].strip() in ('CAP:', ''))} 条")
+    if bad_cap:
+        emit('**无编号图注清单（逐条确认是否为编译性处理）**')
+        for r in bad_cap[:a.max]:
+            emit(f"- {r['doc']} B{r['i']}: {r['zh'][:100]!r}")
     emit('')
 
     # F 无中文块分类
