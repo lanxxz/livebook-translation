@@ -219,9 +219,9 @@ $PY $S/qa_translation.py --root . --out out/译文自查报告.md   # 内容级�
 livebook-translation/
 ├── SKILL.md                  # Agent 操作手册（必读）：核心认知 / 五条流程 / 交付前必查
 ├── README.md                 # 本文件
-├── scripts/                  # 64 个可复用脚本（见下）
+├── scripts/                  # 67 个可复用脚本（见下）
 ├── references/
-│   ├── pitfalls.md           # 踩坑清单 A–AA 组（动手前先扫）
+│   ├── pitfalls.md           # 踩坑清单 A–AC 组（动手前先扫）
 │   ├── workflows.md          # 流程细节（SKILL.md 瘦身移出的扩展阅读）
 │   └── layout-heuristics.md  # 版式判据：字体分类 / 图区聚类 / 段落合并 / 各书实测参数
 └── assets/
@@ -239,7 +239,7 @@ livebook-translation/
 | 图内文字 | `render_figs.py`（文字层） · `ocr_figs.py` `fig_raster.py`（栅格） · `gen_figzh_map.py`（批量映射） |
 | 译文转换 | `convert.py` `cov.py` `realign_zh.py` |
 | 生成 | `build_doc.py` `build_docx.py` `build_front.py` `build_front_pages.py` `convert_pdf.py` |
-| 合订 | `merge_book.py` `build_book_pdf.py` `add_pdf_outline.py` `chapter_pages.py` |
+| 合订 | `merge_book.py` `build_book_pdf.py` `add_pdf_outline.py` `chapter_pages.py` `docx_toc_links.py`（docx 层目录跳转） |
 | **统一多级目录（AA 组）** | `toc_common.py`（公共） `toc_build.py`（两遍构建+合订） `toc_links.py`（链接+fail-closed） `toc_verify.py`（验收）；配置模板 `assets/unified_toc.json.example`，用法见 `SKILL.md`「统一多级目录与可点击导航」 |
 | 校验 | `check_cov.py` `check_zh.py` `audit.py` `audit_book.py` `check_blocks.py` `check_merged_images.py` `check_page_coverage.py` `find_blank.py` `layout_check.py` `verify_docx.py` `qa_translation.py` |
 | 辅助 | `bookconf.py` `preview_html.py` `build_glossary.py` `compare_pages.py` `run_raster.py` |
@@ -270,15 +270,16 @@ livebook-translation/
 
 | 想找什么 | 去哪 |
 |---|---|
-| 完整操作流程、五条流程详解、交付前 32 条检查 | `SKILL.md` |
+| 完整操作流程、五条流程详解、交付前 34 条检查 | `SKILL.md` |
 | 各流程的实战细节（W/X/V/AA 组、呈现层、前置页、进度管理、交付范围） | `references/workflows.md` |
-| 某个具体 bug 的症状与修法 | `references/pitfalls.md`（A–AA 组，按书分类；目录在 `SKILL.md`「细节参考」） |
+| 某个具体 bug 的症状与修法 | `references/pitfalls.md`（A–AC 组，按书分类；目录在 `SKILL.md`「细节参考」） |
 | 换一本新书怎么调字体表 / 页眉阈值 / 章首页判据 | `references/layout-heuristics.md` |
 | 译文 JSON 长什么样 | `assets/trans.schema.json` |
 | 图内文字在像素里怎么办 | `SKILL.md`「栅格图内文字流程」 + pitfalls **T 组** |
 | 500 页以上 / 分散图元 | pitfalls **U 组** |
 | 合订、封面、目录两轮校准 | pitfalls **R / W / X 组** |
-| 统一多级目录、章内导览合并、可点击跳转 | `SKILL.md`「统一多级目录与可点击导航」 + pitfalls **AA 组** |
+| 统一多级目录、章内导览合并、可点击跳转 | `SKILL.md`「统一多级目录与可点击导航」 + pitfalls **AA 组**（PDF 层）、**AC 组**（docx 层） |
+| 整书收尾：封面、附录首页、页眉归属、目录能不能点 | pitfalls **AC 组** |
 | 统一目录工具怎么在别的机器跑（配置/命令/跨平台） | `references/workflows.md`「9. 配套脚本用法」 + `assets/unified_toc.json.example` |
 | 并行翻译、术语表、内容级 QA | pitfalls **X 组** |
 
@@ -287,7 +288,9 @@ livebook-translation/
 **T** 栅格 OCR · **U** 超长全书 · **V** 全书范围审计 · **W** 同版式复用与整书合订 ·
 **X** 混合型书 + 并行交付 + 内容级质检 + 版式保真与对话重组（X16–X23）·
 **Y** 彩色图内文字与两遍渲染 · **Z** EPUB 源与统计图三类分流 ·
-**AA** 统一多级目录 + 章内导览合并 + 可点击导航。
+**AA** 统一多级目录 + 章内导览合并 + 可点击导航 ·
+**AB** 内容完整性复核（工程全绿之后的那一层）·
+**AC** 整书收尾：可点击目录 / 封面 / 附录首页 / 页眉。
 
 ---
 
@@ -306,6 +309,7 @@ livebook-translation/
 | Manning 2025 | 233 页 / 14 分册 / 43 图 | 混合型书 + 并行交付 + 内容级 QA（X 组） |
 | **EPUB 源 Manning MEAP** | **145k 词 / 10 章 / 75 图 / 402 页合订** | **EPUB 流程、锚点槽位、统计图三类分流（Z 组）** |
 | **Manning MEAP V07（PDF 源）** | **9 章 / 255 页合订 / 167 条统一目录 / 345 链接** | **统一多级目录、章内导览合并、两遍构建、可点击导航（AA 组）** |
+| **MEAP V12 短书（PDF 源，12 章 + 附录）** | **335 页原书 / 242 页合订 / 14 图 / 15 书签** | **docx 层可点击目录、封面重建、附录首页、页眉归属（AC 组）** |
 
 ---
 

@@ -761,6 +761,11 @@ $PY $S/audit_figzh_plain.py --root .            # 标识符/短标签/数据/URL
 - **前置页走 docx → LibreOffice**，不要用 pymupdf CJK 字体直绘目录行（AA9）。
 - **验收断言 + 目视各一遍**：全书检索导览关键词 0 命中、目录三方逐条一致、
   链接逐个模拟点击；再渲染目录页与章首页看缩进与空洞（AA14）。
+- **交付物同时含 docx 时，链接要做在 docx 层**：合并之后给章标题段落插书签，
+  把目录行整行的 run 包进 `w:hyperlink`；Word 导出 PDF 时内部链接自动转 GoTo，
+  一份源两端都能点，不用给 PDF 单独打补丁。**只加 `w:hyperlink`、不套 `Hyperlink`
+  字符样式**，否则目录会变蓝加下划线。`toc_links.py` 是 PDF 层的 `LINK_GOTO`，
+  按交付形态二选一（AC1/AC2）。
 - **交付说明顶部写「当前状态 + 旧文件自检提示」**，历史问题标注「已被 #N 取代」，
   避免用户拿旧副本或文档里的历史措辞当现状（AA11）。
 
@@ -778,6 +783,19 @@ python <技能>/scripts/toc_verify.py --config work/unified_toc.json
 各分册 docx+PDF 与 LibreOffice，不依赖 `book.json` 或本技能其他脚本。
 回归实测与项目专版产物逐项一致（255 页 / 168 书签 / 345 链接 / 255 页文本）。
 命令与调参细节见 `references/workflows.md`「9. 配套脚本用法」。
+
+**交付 docx 且要可点击时，再补一道 docx 层链接**（与上面二选一，也可两者都做）：
+
+```bash
+# 合并之后、导出 PDF 之前；不要对分册跑，也不要在成品上重复跑（脚本不幂等）
+python <技能>/scripts/docx_toc_links.py out/整书.docx --docs docs.json
+# Word 导出 PDF 后验收：书签/链接三数 + 落点页逐条比对
+python <技能>/scripts/docx_toc_links.py out/整书.docx --docs docs.json \
+    --verify-pdf out/整书.pdf --toc-page 2
+```
+
+它只认 `docs.json` 的 `id/title/num/kind/header`，目录行按标签精确匹配、
+章首页按「第 N 章」段 + 下一段标题校验，任一不符即中止（AC1/AC2）。
 
 ## 译文 JSON 结构
 
@@ -899,6 +917,13 @@ python <技能>/scripts/toc_verify.py --config work/unified_toc.json
     标题区与页码区落点一致；链接类型全部 `LINK_GOTO`；页眉「返回目录」落点在目录页顶部
 32. **旧文件自检提示** — 交付说明顶部写明当前页数 / 目录位置 / 章节里应该与不应该有什么，
     并给「若看到 X 说明是旧副本」的判据；历史问题标注「已被 #N 取代」（AA11）
+33. **docx 层目录链接**（交付 docx 时必过）— `docx_toc_links.py --verify-pdf`：
+    书签 == 条目数 + 1、正文超链接 == 条目数、PDF `LINK_GOTO` == 条目数，
+    且每条落点页含对应标题；页眉回跳落在目录页。**有封面时目录是第 2 页**，
+    断言写死「目录=1」会报全错（AC2）
+34. **页眉归属逐页断言 + 封面单页** — 每页页眉须含该页所属章标签，无页眉的节不含 `|`
+    （参数传成书名会变成「书名 | 书名」，AC5）；有封面时全书页数要复核一次，
+    封面多挤出一页会让目录页码整体偏 1（AC11）
 
 **排版层（`layout_check.py` 一次跑完，必跑）**
 
@@ -969,7 +994,8 @@ python <技能>/scripts/toc_verify.py --config work/unified_toc.json
   **V 全书范围审计 + 同页多图 + 新增页** / **W 同版式复用与整书合订** /
   **X 混合型书 + 并行交付 + 内容级质检** / **Y 彩色图内文字与两遍渲染** /
   **Z EPUB 源 + 锚点槽位 + 统计图** / **AA 统一多级目录与章内导览合并** /
-  **AB 内容完整性复核（工程全绿之后的那一层）**），
+  **AB 内容完整性复核（工程全绿之后的那一层）** /
+  **AC 整书收尾（可点击目录 / 封面 / 附录首页 / 页眉）**），
   动手前先扫一遍，尤其 **A17 / F7 / F9 / G1 / G7 / H4 / I1 / J1 / M1 / M7 / M9 /
   N2 / N3 / O1 / O3 / O4 / P1 / P3 / P4 / P8 / P9 / Q1 / Q3 / Q7 /
   R1 / R2 / R3 / R4 / R5 / S1 / S2 / S3 / S4 / S5 / S7 /
@@ -977,7 +1003,8 @@ python <技能>/scripts/toc_verify.py --config work/unified_toc.json
   W1 / W2 / W3 / W4 / W6 / W7 / W9 / W11 / W12 / W13 / W14 / W15 / W16 / W17 / W19 /
   X1 / X2 / X3 / X4 / X5 / X6 / X7 / X8 / X9 / X10 / X11 / X12 / X13 / X14 / X15 /
   X16 / X17 / X18 / X19 / X20 / X21 / X22 / X23 /
-  AA1 / AA4 / AA5 / AA6 / AA10 / AA11 / AA14**
+  AA1 / AA4 / AA5 / AA6 / AA10 / AA11 / AA14 /
+  AC1 / AC2 / AC3 / AC4 / AC7 / AC10**
   **Y 组是「彩色图内文字 + 两遍渲染 + 页码/目录」的必读**：Y1/Y2（墨迹判据要相对底色、
   底色按众数占比取，修中英叠字与深底白块）、Y3/Y4（先擦全部再统一写、按原始每行擦，
   修字被擦一半与开口方框）、Y5/Y6（KEEP 判定前置、墨迹像素数代替比例）、
@@ -1080,6 +1107,25 @@ python <技能>/scripts/toc_verify.py --config work/unified_toc.json
   **AB4（图内漏译的判定单位是「图」不是「条目」：短节点名流程图会被短标签判据
   整张漏掉）**、AB5（表头是多行独立块时只译一半会出白底灰框，数据表要整表统一）、
   AB6（术语变体要分「真不一致」与「语境区分」，查上下文再下结论）。
+
+  **AC 组是「整书收尾」的必读（12 章 + 附录 / 242 页合订实测）**：
+  **AC1（目录要可点就做在 docx 层：书签 + `w:hyperlink`，一份源两端可点；
+  别套 `Hyperlink` 字符样式，否则变蓝加下划线）**、
+  **AC2（落点页 == 印刷页码逐条比；有封面时目录在第 2 页，别写死第 1 页）**、
+  **AC3（章标题没套 Heading 1，Word 自动目录域只抓到小节 → 手工目录 +
+  从合并 PDF 回填页码，两遍收敛）**、
+  **AC4（一个 Word COM 实例连续开关多个文档，页数会串成上一个的，还不报错）**、
+  AC5（页眉参数是章标签不是书名，传错整本变「书名 | 书名」）、
+  AC6（无页眉的节残留模板 `w:pBdr` 细线）、
+  **AC7（原书 brief contents 与自制总目录重复，还可能列着未发布的章；
+  删要在版面层，不能删译文块）**、AC8（附录首页不是 chapter_open：
+  判据卡在「数字开头的大标题」）、AC9（`␤` 拆行后别再补全角空格凑缩进）、
+  **AC10（句尾碎片被切成 code 块用 DROPCODE，启发式会误删 `(?=pattern)`）**、
+  AC11（封面独立成节、无页眉页码，且对间距极敏感：多 20pt 就多一页）、
+  AC12（列表/代码块后的正文段前 16/8pt，12pt 在预览图里等于没改）、
+  AC13（「合并被拆碎段落」的逻辑会吞掉排版标记）、
+  AC14（audit 用 difflib 对齐 + 短白名单；别在 audit 里过滤空占位块）、
+  AC15（预览裁太窄会「吃掉」符号，先查 docx/PDF 文本层再改代码）。
 - `references/layout-heuristics.md` — 版式解析判据（字体分类、图区聚类、段落合并、
   中文竖排、**第 12 节 Manning 2025 单色版实测参数**：字体语义表、两种结构色、
   竖线分段合并的表格判定、章首页矢量项目符号分组）
@@ -1105,6 +1151,9 @@ python <技能>/scripts/toc_verify.py --config work/unified_toc.json
   挂前四方 fail-closed 校验，同文件保存走临时文件 + `replace`（AA6/AA7）
 - `scripts/toc_verify.py` — 三方页码核对 + 逐个模拟点击 + 章内导览残留 +
   链接类型，任一不符退出码 1（AA14）
+- `scripts/docx_toc_links.py` — **docx 层目录链接**（交付 docx 时用）：章标题落书签 +
+  目录行整行 `w:hyperlink` + 页眉回跳，`--verify-pdf` 逐条核对落点页；
+  只依赖 `docs.json`，不幂等（重挂要从合并步骤重来），fail-closed（AC1/AC2）
 - `scripts/build_front_pages.py` — 前置页排版；`toc` 支持 4 元组
   `[编号, 标题, 页码, 层级]`，三元组仍按章级处理（多级目录视觉层）
 - `assets/unified_toc.json.example` — 统一目录配置模板，逐字段带说明
