@@ -511,6 +511,16 @@ X 组 233 页并行交付 / V 组交付前范围审计），动手前先读对�
 正文部分沿用骨架流水线，**只把「图内文字 → 渲染」这一段整体替换**。
 这一节是本次 374 页 / 80 张 PNG 图实战的全部有效做法；细节踩坑见 pitfalls T 组。
 
+**第一原则（先分类，再动手，别猜）：**
+
+- **「示意图」不等于「截图」**。只有真有界面特征（标签栏 / URL 栏 / 工具栏 / 按钮 /
+  深色主题）的才整图保留 + 中文图注；白底 + 方框 + 箭头 + 短标签的示意图
+  **必须 OCR 擦写**。分类**不许按页码或文件名猜**，先出一张 contact sheet 逐张看；
+  猜错一格就是整张图全英文交付（pitfalls AD1）。
+- **旋转 90° 的竖排标签 easyocr 抓不到**（侧栏的 Evaluation/Observability、坐标轴名、
+  Core 这类）。要单独把整图 `rotate(-90)` 再 OCR 一遍，中文化时**在旋转空间写水平中文
+  再转回**，与原书旋转风格一致（pitfalls AD2）。竖排里的密集标识符按 KEEP 保留。
+
 ### 四个环节，缺一不可
 
 ```
@@ -518,7 +528,7 @@ X 组 233 页并行交付 / V 组交付前范围审计），动手前先读对�
    ocr_figs.py    erase_labels    px_draw      report + 看图
 ```
 
-**技能自带三个脚本，直接可用：**
+**技能自带四个脚本，直接可用：**
 
 ```bash
 # ① 提取：裁图 → OCR → 过滤 → 按基线聚合 → 双套坐标，结果按图缓存
@@ -529,6 +539,10 @@ $PY $S/ocr_figs.py 书.pdf work/book_figtexts.json --dpi 300 --pages 1-374
 $PY $S/run_raster.py work/book_figtexts.json work work/ocr_cache figs
 #    → 打印 rendered / kept / MISSING / OVERFLOW / SMALL
 #    → MISSING 或 OVERFLOW 非 0 时退出码 1，可直接当闸门用
+
+# ④ 竖排（旋转 90°）标签补译：easyocr 抓不到，rotate(-90) 后 OCR + 擦写再转回
+$PY $S/apply_rot_labels.py figs --map work/rot_labels.json
+#    映射 {key: {labels: [{rotbox:[x0,y0,x1,y1], cn:"…"}]}}，rotbox 是旋转后坐标
 ```
 
 `fig_raster.py` 里每一条判据都标注了它对应的失败编号（T1–T5），改之前先读注释。
@@ -715,6 +729,10 @@ $PY $S/build_front_pages.py out/00_前置页.docx --meta=work/front_meta.json
 有 **11 段话整段没译**、图内 **41 条普通英文没中文化**。两者都不是「译得不好」，
 是内容直接缺失，任何基于「键是否存在 / 块号是否对齐」的闸门都发现不了。
 
+**栅格图书的同类根因**（图分类错把示意图当截图、旋转竖排字漏检、句中英文、
+错字/繁体/重复字、表格被展平成「｜」段落、折行碎片）见 pitfalls **AD 组**——
+同样是「结构层查不出、只有内容层扫描 + 逐图目视才抓得到」。
+
 交付前按这个顺序过四层，前三层不过不许交付：
 
 ```
@@ -866,6 +884,9 @@ python <技能>/scripts/docx_toc_links.py out/整书.docx --docs docs.json \
     - `assert not np.array_equal(输入PNG, 输出PNG)` — 防「报告全绿但图没变」（T5）
     - **逐张看图**：方框线是否完整、灰条是否还是灰、彩块是否留白块、
       是否有中英文重叠、字号是否小到看不清（T1/T2/T3）
+    - **图分类复核**：contact sheet 逐张确认没有把「示意图」当「截图」整图保留
+      （AD1）；**竖排/旋转标签**已补译（旋转 OCR，AD2）
+
 14. **合订 PDF 页码逐页核对** — 封面不计，正文从 1 连续；
     用页脚 clip 区域取文本，不要用「每页最后一行」（会误报，见上文）
 15. **超长全书「四数一零」**（走「超长全书管线」的必过，见 pitfalls U14）：
@@ -924,6 +945,18 @@ python <技能>/scripts/docx_toc_links.py out/整书.docx --docs docs.json \
 34. **页眉归属逐页断言 + 封面单页** — 每页页眉须含该页所属章标签，无页眉的节不含 `|`
     （参数传成书名会变成「书名 | 书名」，AC5）；有封面时全书页数要复核一次，
     封面多挤出一页会让目录页码整体偏 1（AC11）
+35. **中文正文里没有夹英文词**（AD5）— 扫「中文字 + 空格 + 单个小写英文词 + 空格 + 中文字」，
+    排除标识符白名单（LLM/MCP/API/字段名/路径/产品名/括号术语）。这类漏译整块是中文，
+    任何「块是否含中文」的闸门都查不出（prominent / resulting / poorly / selective）
+36. **错字三扫**（AD6/AD7）— ① 繁简混用（Unicode 判繁体字集，剔除「程/据」等简繁同形字）；
+    ② 连续相同汉字 `(.)\1`（排除 常常/往往 与 针对+对话、支持+持久化 这类合法词界）；
+    ③ 术语一致性（context→上下文、agent→智能体、pipeline→流水线 各一个译法；
+    `domain` 不得译成「地域」）
+37. **表格是真表格**（AD4）— 交付版里不允许出现「策略｜最适用于｜权衡｜示例」这种
+    竖线分隔的段落；被展平过的表要对照英文原表逐格核对（展平时会串列）
+38. **目录可点击（docx + PDF 两端，AD9）** — docx 层有书签 + `w:hyperlink`、
+    PDF 有书签 + 目录页 `LINK_GOTO`；自建目录的行格式要与 `docx_toc_links` 的
+    `label_of`（`第 N 章　标题`）对齐，否则匹配全落空
 
 **排版层（`layout_check.py` 一次跑完，必跑）**
 
@@ -995,7 +1028,9 @@ python <技能>/scripts/docx_toc_links.py out/整书.docx --docs docs.json \
   **X 混合型书 + 并行交付 + 内容级质检** / **Y 彩色图内文字与两遍渲染** /
   **Z EPUB 源 + 锚点槽位 + 统计图** / **AA 统一多级目录与章内导览合并** /
   **AB 内容完整性复核（工程全绿之后的那一层）** /
-  **AC 整书收尾（可点击目录 / 封面 / 附录首页 / 页眉）**），
+  **AC 整书收尾（可点击目录 / 封面 / 附录首页 / 页眉）** /
+  **AD 栅格图书整本交付的返工根因（图分类 / 竖排字 / 折行碎片 / 表格展平 /
+  句中英文 / 错字 / 目录格式）**），
   动手前先扫一遍，尤其 **A17 / F7 / F9 / G1 / G7 / H4 / I1 / J1 / M1 / M7 / M9 /
   N2 / N3 / O1 / O3 / O4 / P1 / P3 / P4 / P8 / P9 / Q1 / Q3 / Q7 /
   R1 / R2 / R3 / R4 / R5 / S1 / S2 / S3 / S4 / S5 / S7 /
@@ -1004,7 +1039,8 @@ python <技能>/scripts/docx_toc_links.py out/整书.docx --docs docs.json \
   X1 / X2 / X3 / X4 / X5 / X6 / X7 / X8 / X9 / X10 / X11 / X12 / X13 / X14 / X15 /
   X16 / X17 / X18 / X19 / X20 / X21 / X22 / X23 /
   AA1 / AA4 / AA5 / AA6 / AA10 / AA11 / AA14 /
-  AC1 / AC2 / AC3 / AC4 / AC7 / AC10**
+  AC1 / AC2 / AC3 / AC4 / AC7 / AC10 /
+  **AD1 / AD2 / AD3 / AD4 / AD5 / AD6 / AD9 / AD10****
   **Y 组是「彩色图内文字 + 两遍渲染 + 页码/目录」的必读**：Y1/Y2（墨迹判据要相对底色、
   底色按众数占比取，修中英叠字与深底白块）、Y3/Y4（先擦全部再统一写、按原始每行擦，
   修字被擦一半与开口方框）、Y5/Y6（KEEP 判定前置、墨迹像素数代替比例）、
@@ -1136,6 +1172,8 @@ python <技能>/scripts/docx_toc_links.py out/整书.docx --docs docs.json \
 - `scripts/gen_figzh_map.py` — **通用图内译文映射表**：导出全书唯一 EN 短语，
   「精确映射 + KEEP 正则 + 默认写英文原文」一次生成各分册 `_figzh.txt`；
   `--map` / `--keep` 可外部覆盖（X9）
+- `scripts/apply_rot_labels.py` — **竖排（旋转 90°）标签补译**：easyocr 漏检的侧栏名 /
+  坐标轴名，rotate(-90) 后擦英文写中文再转回，与原书旋转风格一致；配置驱动（AD2）
 - `scripts/add_pdf_outline.py` — **合订 PDF 两级书签**：从各分册 `_trans.json`
   的 h2/h3 标题在对应页区间定位，写「章 + 小节」书签并校验回跳/越界（X11）
 - `scripts/qa_translation.py` — **译文内容量化自查**（只读）：原文 vs 译文逐块对齐，
